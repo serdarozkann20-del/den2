@@ -4,7 +4,6 @@
 ## Presets are keyed by a hash of the rig's *bone name set*, so a given source rig
 ## shape only ever needs one manual mapping pass; every later animation file that
 ## shares that skeleton reuses the stored mapping instantly.
-class_name RBPreset
 extends RefCounted
 
 const ROOT := "res://.rigbridge"

@@ -1,8 +1,11 @@
 @tool
 ## Builds and persists `BoneMap` resources from a matching report.
-class_name RBBoneMapBuilder
 extends RefCounted
 
+const RBBones := preload("./rb_bones.gd")
+const RBMatcher := preload("./rb_matcher.gd")
+const RBPreset := preload("./rb_preset.gd")
+const RBRig := preload("./rb_rig.gd")
 const DEFAULT_SKELETON_NAME := "GeneralSkeleton"
 
 

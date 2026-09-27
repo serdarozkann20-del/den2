@@ -7,9 +7,9 @@
 ## `spine`/finger/neck chains only carry a family + rank hint: the matcher
 ## renumbers chains by hierarchy depth, so naming differences like
 ## `Spine` / `Spine1` / `spine_01` / `spine.001` all land on the same ids.
-class_name RBBones
 extends RefCounted
 
+const RBName := preload("./rb_name.gd")
 ## Concept families whose rank must be renumbered by hierarchy depth.
 const CHAIN_FAMILIES: PackedStringArray = ["spine", "neck", "tail", "thumb", "index", "middle", "ring", "little"]
 

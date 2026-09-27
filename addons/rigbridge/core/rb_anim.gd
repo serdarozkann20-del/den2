@@ -5,9 +5,9 @@
 ## This is the "fix the bones inside a Mixamo animation" half of the plugin and it
 ## works without touching import settings, so it also works for formats whose
 ## importer has no retarget options (Collada `.dae`, obj rigs, odd exports).
-class_name RBAnim
 extends RefCounted
 
+const RBName := preload("./rb_name.gd")
 const BONE_TRACK_TYPES: Array = [
 	Animation.TYPE_POSITION_3D,
 	Animation.TYPE_ROTATION_3D,
@@ -25,13 +25,32 @@ static func split_path(p: NodePath) -> Dictionary:
 	return {"names": names, "subs": subs, "absolute": p.is_absolute()}
 
 
+## Build the NodePath from its parts instead of from a joined string.
+## `NodePath(String)` splits on ':', so a bone literally named `mixamorig:LeftArm`
+## would silently lose its prefix - and the engine reads a bone track's name with
+## `path.get_subname(0)` (AnimationMixer), so a split path animates nothing.
 static func join_path(names: PackedStringArray, subs: PackedStringArray, absolute: bool) -> NodePath:
-	var s := "/".join(names)
-	for sub in subs:
-		s += ":" + String(sub)
-	if absolute:
-		s = "/" + s
-	return NodePath(s)
+	var has_colon := false
+	for n in names:
+		if String(n).contains(":"):
+			has_colon = true
+	for n in subs:
+		if String(n).contains(":"):
+			has_colon = true
+	if not has_colon:
+		var s := "/".join(names)
+		for sub in subs:
+			s += ":" + String(sub)
+		if absolute:
+			s = "/" + s
+		return NodePath(s)
+	# Array construction keeps ':' inside a part verbatim.
+	if names.size() > 0 and subs.size() > 0:
+		var joined := String(subs[0])
+		for i in range(1, subs.size()):
+			joined += ":" + String(subs[i])
+		return NodePath(names, PackedStringArray([joined]), absolute)
+	return NodePath(names, subs, absolute)
 
 
 ## The bone part of a track path (its subname), or empty for property/method tracks.
@@ -50,10 +69,12 @@ static func is_bone_track(anim: Animation, idx: int) -> bool:
 
 static func set_bone(anim: Animation, idx: int, bone: String, node_override: String = "") -> void:
 	var parts := split_path(anim.track_get_path(idx))
-	var subs := parts["subs"]
+	var subs: PackedStringArray = parts["subs"]
 	var names: PackedStringArray = parts["names"]
 	if subs.size() > 0:
 		subs[subs.size() - 1] = bone
+	else:
+		subs = PackedStringArray([bone])
 	if not node_override.is_empty():
 		names = PackedStringArray([node_override])
 	anim.track_set_path(idx, join_path(names, subs, parts["absolute"]))

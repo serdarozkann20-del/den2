@@ -10,11 +10,21 @@
 ##  * `rewrite` : pure `Animation` surgery into profile space; never touches `.import`,
 ##                so it also works for formats whose importer lacks retarget options.
 ##  * `both`    : import where the file is importable, rewrite for the rest.
-class_name RBPipeline
 extends RefCounted
 
 signal progress(stage: String, step: int, total: int, msg: String)
 signal logged(level: String, msg: String)
+
+const RBAnim := preload("./rb_anim.gd")
+const RBBoneMapBuilder := preload("./rb_bonemap.gd")
+const RBBones := preload("./rb_bones.gd")
+const RBImport := preload("./rb_import.gd")
+const RBLibrary := preload("./rb_library.gd")
+const RBMatcher := preload("./rb_matcher.gd")
+const RBPreset := preload("./rb_preset.gd")
+const RBRig := preload("./rb_rig.gd")
+
+
 
 var editor: EditorInterface = null
 var last_report: Dictionary = {}

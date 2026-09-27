@@ -22,9 +22,31 @@ rewrites the animation's track paths (mode B). That is the whole design philosop
 
 ## Install
 
-1. Copy `addons/rigbridge/` into your project.
+1. Copy `addons/rigbridge/` into your project — anywhere you like, e.g. `res://addons/rigbridge/`.
 2. **Project ▸ Project Settings ▸ Plugins ▸ RigBridge ▸ Enable**.
 3. A **RigBridge** bottom panel appears (also reachable from **Project ▸ Tools ▸ RigBridge: show panel**).
+
+The plugin registers **no global class names**: every module reaches its neighbours through
+relative `preload()` paths. That means the folder can be moved or renamed, two copies can coexist
+without one shadowing the other, and nothing depends on the editor's
+`.godot/global_script_class_cache.cfg` being up to date.
+
+To call it from your own script:
+
+```gdscript
+const RB := preload("res://addons/rigbridge/rigbridge.gd")   # facade with every module
+
+func _ready() -> void:
+	var report: Dictionary = RB.RBPipeline.new().run({
+		"target_model": "res://characters/player.glb",
+		"anim_files": RB.RBPreset.collect_files("res://mixamo/animations", true),
+		"library_name": "Mixamo",
+		"attach": false,
+	})
+	print(RB.RBPipeline.format_report(report))
+```
+
+Or preload a single module: `const RBAnim = preload("res://addons/rigbridge/core/rb_anim.gd")`.
 
 Requires Godot **4.7** or newer (the retarget import options this plugin writes were reworked in 4.5; the
 option table is read from 4.7's `ResourceImporterScene`). Older 4.x versions will run mode B fine but the
@@ -105,6 +127,7 @@ Flags: `--target --anims --out --lib --mode --skeleton --root_motion --loop --in
 ## `RBPipeline.run(opts)`
 
 ```gdscript
+# const RBPipeline := preload("res://addons/rigbridge/core/rb_pipeline.gd")
 var report := RBPipeline.new().run({
     "mode": "both",
     "target_model": "res://characters/player.glb",
@@ -233,6 +256,29 @@ part of your repo, so review the diff.
   and the three skeleton `post_import_plugin`s, not from blog posts.
 * Not yet executed against a real Godot editor binary. If a key is rejected on your build, use
   **Calibrate keys…** — that path cannot go stale.
+
+## Troubleshooting
+
+**`Invalid call. Nonexistent function \'normalize\' in base \'GDScript\'`** (or any other RigBridge
+function). A `class_name` lookup hit a stale or shadowing registration instead of this plugin's file.
+Current builds cannot hit it — the plugin no longer registers global classes — but if you upgraded from an
+older copy: delete the duplicate `addons/rigbridge*` folder, close the project, remove `res://.godot/`
+(the editor rebuilds its caches), reopen.
+
+**`Bone name cannot be empty or contain ':' or '/'` + `Index p_bone = N is out of bounds`.** Godot 4.7's
+`Skeleton3D.add_bone()` rejects `:` in bone names while `set_bone_name()` allows it, so a test/build helper
+that adds `mixamorig:Hips` directly ends up with an *empty* skeleton and every later index fails. RigBridge
+now adds the bone with a temporary name and renames it afterwards. Same rule shapes Mode B: track paths are
+built with `NodePath(names, subnames)` rather than by joining strings, because a joined
+`"@GeneralSkeleton:mixamorig:LeftArm"` would be re-split on `:` and animate nothing
+(`AnimationMixer` reads the bone with `path.get_subname(0)`).
+
+**`Formatting error in string "Bone name cannot be empty or contain ':' or '/'.': not all arguments
+converted`.** Upstream: that engine message is passed an argument it has no placeholder for
+(`skeleton_3d.cpp`). Harmless, and unrelated to this plugin.
+
+**Retarget keys vanish after reimport.** Your build spells them differently than 4.7 does. Run
+**Calibrate keys…** against one hand-configured file — the plugin then clones that file's exact key set.
 
 ## Legal / etiquette
 

@@ -2,10 +2,11 @@
 ## Pulls `Animation` resources out of imported model files, normalizes their names,
 ## optionally rewrites them into profile space, and assembles `AnimationLibrary`
 ## resources. Pure resource work: no editor calls, so the same code runs headless.
-class_name RBLibrary
 extends RefCounted
 
-
+const RBAnim := preload("./rb_anim.gd")
+const RBName := preload("./rb_name.gd")
+const RBPreset := preload("./rb_preset.gd")
 ## `{animations: Array, errors: PackedStringArray, source_bones: PackedStringArray,
 ##    skeleton: String}` where each element is `{name, anim, origin, lib}`.
 static func extract(path: String, opts: Dictionary = {}) -> Dictionary:

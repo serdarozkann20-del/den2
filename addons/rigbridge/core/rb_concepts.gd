@@ -6,7 +6,6 @@
 ## resolved to a concept id, and matching happens concept-to-concept. That makes
 ## the matcher independent of naming conventions on either side, including future
 ## renames inside SkeletonProfileHumanoid.
-class_name RBConcepts
 extends RefCounted
 
 # Order matters only for reporting; matching uses the ids.

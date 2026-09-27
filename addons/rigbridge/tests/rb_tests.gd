@@ -4,10 +4,14 @@
 ##   godot --headless --path <project> --script addons/rigbridge/tests/rb_tests.gd
 ##
 ## or from the editor: Project > Tools > RigBridge: run self-test
-class_name RBTests
 extends RefCounted
 
-
+const RBAnim := preload("../core/rb_anim.gd")
+const RBBones := preload("../core/rb_bones.gd")
+const RBMatcher := preload("../core/rb_matcher.gd")
+const RBName := preload("../core/rb_name.gd")
+const RBPreset := preload("../core/rb_preset.gd")
+const RBRig := preload("../core/rb_rig.gd")
 static func run_all(verbose: bool = false) -> PackedStringArray:
 	var out := PackedStringArray()
 	_test_names(out)
@@ -36,7 +40,10 @@ static func _ok(out: PackedStringArray, cond: bool, label: String) -> void:
 
 
 static func _test_names(out: PackedStringArray) -> void:
-	_ok(out, RBName.normalize("mixamorig:LeftUpLeg") == "leftupleg", "normalize strips separators")
+	# normalize() unifies case/separators only; prefix removal is strip_prefixes().
+	_ok(out, RBName.normalize("mixamorig:LeftUpLeg") == "mixamorig_leftupleg", "normalize strips separators")
+	_ok(out, RBName.normalize(RBName.strip_prefixes("mixamorig:LeftUpLeg")) == "leftupleg",
+		"normalize + strip_prefixes")
 	_ok(out, RBName.strip_prefixes("mixamorig:LeftArm") == "LeftArm", "strip_prefixes mixamorig:")
 	_ok(out, RBName.strip_prefixes("Bip001_L_Thigh").begins_with("L_Thigh") or RBName.strip_prefixes("Bip001_L_Thigh").contains("Thigh"), "strip_prefixes Bip001_")
 	_ok(out, RBName.side_of("thigh_l") == 0 or RBName.side_of("thigh_l") == 1, "side_of l/r suffix")
@@ -142,7 +149,10 @@ static func _mixamo_rig() -> Skeleton3D:
 	var idx := {}
 	for i in range(spec.size()):
 		var nm: String = spec[i][0]
-		sk.add_bone(nm)
+		# ':' is legal on a bone name only via set_bone_name (add_bone rejects it).
+		sk.add_bone(nm.replace(":", "_"))
+		if nm != sk.get_bone_name(i):
+			sk.set_bone_name(i, nm)
 		idx[nm] = i
 	for i in range(spec.size()):
 		var par: String = spec[i][1]
@@ -185,12 +195,18 @@ static func _test_matcher(out: PackedStringArray) -> void:
 	_ok(out, String(inv.get("mixamorig:Hips", "")) == "Hips", "invert mapping")
 
 
+## Skeleton3D.add_bone() rejects names containing ':' (Godot 4.7, skeleton_3d.cpp),
+## while set_bone_name() allows them - so bones are added with a temporary name and
+## then renamed. This keeps real Mixamo-style rigs testable.
 static func _make_skeleton(spec: Array) -> Skeleton3D:
 	var sk := Skeleton3D.new()
 	var idx := {}
 	for i in range(spec.size()):
-		sk.add_bone(String((spec[i] as Array)[0]))
-		idx[String((spec[i] as Array)[0])] = i
+		var wanted := String((spec[i] as Array)[0])
+		sk.add_bone(wanted.replace(":", "_"))
+		if wanted != sk.get_bone_name(i):
+			sk.set_bone_name(i, wanted)
+		idx[wanted] = i
 	for i in range(spec.size()):
 		var parent := String((spec[i] as Array)[1])
 		if not parent.is_empty() and idx.has(parent):

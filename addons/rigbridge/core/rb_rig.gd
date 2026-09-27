@@ -11,10 +11,10 @@
 ##   required: PackedInt32Array   # 1 = needed for a usable humanoid retarget
 ##   kind:     String             # "skeleton" | "profile"
 ## }
-class_name RBRig
 extends RefCounted
 
-
+const RBBones := preload("./rb_bones.gd")
+const RBConcepts := preload("./rb_concepts.gd")
 static func from_skeleton(skel: Skeleton3D, family: String = "") -> Dictionary:
 	var rig := {
 		"names": PackedStringArray(),

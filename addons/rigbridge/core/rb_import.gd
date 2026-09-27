@@ -14,7 +14,6 @@
 ##
 ## Node option defaults are filled in by the importer at import time, so a partial node
 ## entry is safe: we only write what we actually want to change.
-class_name RBImport
 extends RefCounted
 
 const SKELETON_NAME := "GeneralSkeleton"

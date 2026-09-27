@@ -4,9 +4,12 @@
 ## Uniqueness is enforced in both directions: one source bone can serve one profile
 ## bone, and vice versa, so a bad `foot`/`toes` guess can never silently steal two
 ## bones. Ties are broken by name similarity and hierarchy depth agreement.
-class_name RBMatcher
 extends RefCounted
 
+const RBBones := preload("./rb_bones.gd")
+const RBConcepts := preload("./rb_concepts.gd")
+const RBName := preload("./rb_name.gd")
+const RBRig := preload("./rb_rig.gd")
 const DEFAULTS := {
 	"threshold": 0.56,
 	"w_concept": 0.62,
@@ -335,7 +338,7 @@ static func _chain_members(rig: Dictionary, key: String) -> Array:
 			members.append(i)
 	if members.is_empty():
 		return []
-	members.sort_custom(_shallower(depths))
+	members = _sort_by_depth(members, depths)
 	var chain: Array = [members[0]]
 	for guard in range(64):
 		var cur_name := String(names[int(chain[chain.size() - 1])])
@@ -381,6 +384,15 @@ static func align_chains(source: Dictionary, target: Dictionary) -> Dictionary:
 	return partner
 
 
-static func _shallower(depths: PackedInt32Array) -> Callable:
-	return func(a, b) -> bool:
-		return depths[int(a)] < depths[int(b)]
+## Insertion sort by depth. Deliberately not a lambda: the matcher runs inside static
+## functions, and a comparator that needs captured state is easier to read as a loop.
+static func _sort_by_depth(idx: Array, depths: PackedInt32Array) -> Array:
+	var out := idx.duplicate()
+	for i in range(1, out.size()):
+		var j := i
+		while j > 0 and depths[int(out[j - 1])] > depths[int(out[j])]:
+			var tmp = out[j - 1]
+			out[j - 1] = out[j]
+			out[j] = tmp
+			j -= 1
+	return out

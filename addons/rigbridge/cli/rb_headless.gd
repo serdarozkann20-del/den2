@@ -18,6 +18,10 @@
 ## into each `.import` file; add `--import` to trigger the reimport in the same run.
 extends SceneTree
 
+const RBPipeline := preload("../core/rb_pipeline.gd")
+const RBPreset := preload("../core/rb_preset.gd")
+const RBTests := preload("../tests/rb_tests.gd")
+
 const KNOWN_FLAGS := [
 	"target", "anims", "out", "lib", "mode", "skeleton", "root_motion",
 	"attach", "loop", "individual", "clean", "dry", "selftest", "verbose",

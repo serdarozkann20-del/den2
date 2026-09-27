@@ -2,6 +2,9 @@
 ## RigBridge - multi-source humanoid retarget + Mixamo bone/animation repair.
 extends EditorPlugin
 
+const RBDock := preload("./ui/rb_dock.gd")
+const RBTests := preload("./tests/rb_tests.gd")
+
 const DOCK_NAME := "RigBridge"
 const MENU_SHOW := "RigBridge: show panel"
 const MENU_TEST := "RigBridge: run self-test"

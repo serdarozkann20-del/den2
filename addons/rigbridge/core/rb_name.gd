@@ -1,7 +1,6 @@
 @tool
 ## Pure string utilities for bone / animation names. Deliberately free of any
 ## editor or scene APIs so the matching logic stays unit-testable in isolation.
-class_name RBName
 extends RefCounted
 
 ## Leading groups that carry rig identity but no anatomical meaning.
@@ -83,7 +82,7 @@ static func tokens(raw: String) -> PackedStringArray:
 static func split_camel(raw: String) -> String:
 	var out := ""
 	for i in range(raw.length()):
-		var c := raw[i]
+		var c := raw.substr(i, 1)
 		var code := c.unicode_at(0)
 		var is_upper: bool = code >= 65 and code <= 90
 		var is_digit: bool = code >= 48 and code <= 57
@@ -118,7 +117,7 @@ static func strip_prefixes(raw: String) -> String:
 			var cut := pl.length()
 			if cut >= s.length():
 				continue
-			var nxt := s[cut]
+			var nxt := s.substr(cut, 1)
 			var glued: bool = pl == "mixamorig" or pl == "mixamo" or pl == "bip001" or pl == "bip01"
 			if nxt == ":" or nxt == "_" or nxt == "-" or nxt == "." or nxt == " ":
 				s = s.substr(cut + 1)
@@ -210,8 +209,10 @@ static func levenshtein(a: String, b: String) -> int:
 
 ## 0.0 .. 1.0 normalized similarity.
 static func similarity(a: String, b: String) -> float:
-	var na := normalize(a)
-	var nb := normalize(b)
+	# Separator style (camelCase vs snake_case) must not look like a difference in
+	# anatomy, so both sides are flattened before the edit distance.
+	var na := normalize(a).replace("_", "")
+	var nb := normalize(b).replace("_", "")
 	if na.is_empty() or nb.is_empty():
 		return 0.0
 	if na == nb:
@@ -250,10 +251,10 @@ static func clean_anim_name(raw: String) -> String:
 		s = s.substr(0, op)
 	# Drop trailing `_1`, `-01`, `.02` counters.
 	var i := s.length() - 1
-	while i >= 0 and s[i].is_valid_int():
+	while i >= 0 and s.substr(i, 1).is_valid_int():
 		i -= 1
 	if i < s.length() - 1 and i >= 0:
-		var sepc := s[i]
+		var sepc := s.substr(i, 1)
 		if sepc == "_" or sepc == "-" or sepc == "." or sepc == " ":
 			s = s.substr(0, i)
 	for sep in SEPARATORS:

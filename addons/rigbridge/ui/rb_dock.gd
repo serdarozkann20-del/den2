@@ -1,8 +1,13 @@
 @tool
 ## Bottom-panel dock: pick a target model + animation files, review/override the
 ## automatic bone mapping, then apply import settings and build the library.
-class_name RBDock
 extends Control
+
+const RBBoneMapBuilder := preload("../core/rb_bonemap.gd")
+const RBImport := preload("../core/rb_import.gd")
+const RBMatcher := preload("../core/rb_matcher.gd")
+const RBPipeline := preload("../core/rb_pipeline.gd")
+const RBPreset := preload("../core/rb_preset.gd")
 
 const MODES: PackedStringArray = ["both", "import", "rewrite"]
 const ROOT_MOTION: PackedStringArray = ["keep", "in_place", "flatten_y"]
