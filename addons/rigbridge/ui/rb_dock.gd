@@ -207,7 +207,7 @@ func _build_ui() -> void:
 	right.add_child(_label("Report"))
 	_report = RichTextLabel.new()
 	_report.bbcode_enabled = true
-	_report.following = true
+	_report.scroll_following = true
 	_report.selection_enabled = true
 	_report.custom_minimum_size = Vector2(300, 120)
 	_report.size_flags_vertical = Control.SIZE_EXPAND_FILL
