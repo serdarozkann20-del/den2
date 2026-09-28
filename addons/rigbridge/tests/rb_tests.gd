@@ -167,6 +167,7 @@ static func run_all(verbose: bool = false) -> PackedStringArray:
 				print(l)
 		return out
 	_test_names(out)
+	_test_snapshot(out)
 	_test_concepts(out)
 	_test_profile(out)
 	_test_matcher(out)
@@ -272,6 +273,43 @@ static func _test_profile(out: PackedStringArray) -> void:
 	_ok(out, ratio > 0.5, "profile names mostly resolve (%.2f)" % ratio)
 
 
+## The snapshot Dictionary is six *parallel* arrays. `Packed*Array` is a value type, so a
+## helper that appends through `rig["names"]` writes into a copy and leaves the stored array
+## empty - every rig fixture then matched nothing while still looking like a matcher failure.
+## Check the shape before checking any behaviour.
+static func _size_of(rig: Dictionary, key: String) -> int:
+	match key:
+		"names", "parents", "concepts":
+			return (rig[key] as PackedStringArray).size()
+		"depths", "required":
+			return (rig[key] as PackedInt32Array).size()
+		"lengths":
+			return (rig[key] as PackedFloat64Array).size()
+	return -1
+
+
+static func _test_snapshot(out: PackedStringArray) -> void:
+	var sk := _make_skeleton([
+		["Hips", ""], ["spine", "Hips"], ["spine.001", "spine"], ["upper_arm.L", "spine.001"],
+	])
+	var rig := RBRig.from_skeleton(sk, "rigify")
+	var n := _size_of(rig, "names")
+	_ok(out, n == 4, "from_skeleton keeps every bone (got %d)" % n)
+	for key in ["parents", "depths", "lengths", "concepts", "required"]:
+		_ok(out, _size_of(rig, key) == n, "skeleton snapshot arrays are parallel: %s (%d of %d)" % [key, _size_of(rig, key), n])
+	_ok(out, String((rig["names"] as PackedStringArray)[0]) == "Hips", "snapshot names follow bone order")
+	_ok(out, String((rig["parents"] as PackedStringArray)[2]) == "spine", "snapshot parents are names, not indices")
+	_ok(out, int((rig["depths"] as PackedInt32Array)[2]) == 2, "snapshot depths come from the hierarchy")
+	_ok(out, String((rig["concepts"] as PackedStringArray)[2]) == "spine.02",
+		"chain ranks renumbered (got %s)" % String((rig["concepts"] as PackedStringArray)[2]))
+	sk.free()
+	var prig := RBRig.from_profile(SkeletonProfileHumanoid.new(), "godot_humanoid")
+	var m := _size_of(prig, "names")
+	_ok(out, m > 20, "from_profile keeps every bone (got %d)" % m)
+	for key in ["parents", "depths", "lengths", "concepts", "required"]:
+		_ok(out, _size_of(prig, key) == m, "profile snapshot arrays are parallel: %s" % key)
+
+
 static func _mixamo_rig() -> Skeleton3D:
 	var sk := Skeleton3D.new()
 	var spec := [
@@ -319,7 +357,7 @@ static func _test_matcher(out: PackedStringArray) -> void:
 	var sk := _mixamo_rig()
 	var profile := SkeletonProfileHumanoid.new()
 	var source := RBRig.from_skeleton(sk, "mixamo")
-	_ok(out, source["names"].size() == 22, "source rig snapshot size")
+	_ok(out, _size_of(source, "names") == 22, "source rig snapshot size (got %d)" % _size_of(source, "names"))
 	var target := RBRig.from_profile(profile, "godot_humanoid")
 	var rep := RBMatcher.match_rigs(source, target, {})
 	sk.free()
@@ -464,17 +502,43 @@ static func _test_anim(out: PackedStringArray) -> void:
 	_ok(out, RBAnim.bone_of(anim, t_rot) == "LeftArm", "bone_of")
 	_ok(out, RBAnim.is_bone_track(anim, t_rot), "is_bone_track rotation")
 	_ok(out, not RBAnim.is_bone_track(anim, t_method), "method track is not a bone track")
-	var moved := RBAnim.to_profile_space(anim, {"LeftArm": "upper_arm.l", "Hips": "hips"}, "GeneralSkeleton", true)
-	_ok(out, int(moved["moved"]) == 2, "to_profile_space moved 2 tracks (got %d)" % int(moved["moved"]))
-	_ok(out, RBAnim.bone_of(anim, t_rot) == "upper_arm.l", "bone renamed in track")
-	_ok(out, String(anim.track_get_path(t_rot).get_name(0)) == "@GeneralSkeleton", "skeleton part became @GeneralSkeleton")
-	_ok(out, String(anim.track_get_path(t_method)) != "", "method track survived")
-	_ok(out, anim.track_get_type(t_pos) == Animation.TYPE_POSITION_3D, "hips position kept")
-	_ok(out, RBAnim.zero_position(anim, PackedStringArray(["hips"])) == 1, "zero_position")
+	# read the key values first: `drop_unmapped` removes a track and that shifts every id after it
 	var v = anim.track_get_key_value(p, 0)
 	_ok(out, typeof(v) == TYPE_VECTOR3 and (v as Vector3) == Vector3(1, 2, 3), "key values readable")
+	_ok(out, anim.track_get_path(t_method).get_name(0) == ".", "method track keeps its own path")
+	var moved := RBAnim.to_profile_space(anim, {"LeftArm": "upper_arm.l", "Hips": "hips"}, "GeneralSkeleton", true)
+	_ok(out, int(moved["moved"]) == 2, "to_profile_space moved 2 tracks (got %d)" % int(moved["moved"]))
+	_ok(out, (moved["dropped"] as Array) == ["LeftFoot"],
+		"unmapped bone reported as dropped (got %s)" % str(moved["dropped"]))
+	_ok(out, anim.get_track_count() == 3, "exactly one track was removed (got %d)" % anim.get_track_count())
+	# and from here on tracks are looked up again by bone, never by the ids above
+	var i_rot := _find_track(anim, "upper_arm.l")
+	var i_pos := _find_track(anim, "hips")
+	_ok(out, i_rot >= 0, "bone renamed in track")
+	_ok(out, i_rot >= 0 and String(anim.track_get_path(i_rot).get_name(0)) == "@GeneralSkeleton",
+		"skeleton part became @GeneralSkeleton")
+	_ok(out, _find_track(anim, "LeftFoot") < 0, "the unmapped bone track is gone")
+	_ok(out, i_pos >= 0 and anim.track_get_type(i_pos) == Animation.TYPE_POSITION_3D, "hips position kept")
+	_ok(out, _count_type(anim, Animation.TYPE_METHOD) == 1, "method track survived")
+	_ok(out, RBAnim.zero_position(anim, PackedStringArray(["hips"])) == 1, "zero_position")
 	RBAnim.set_loop(anim, true)
 	_ok(out, RBAnim.is_looping(anim), "loop set")
+
+
+## Track ids are not stable across `remove_track`, so the anim tests re-locate by bone.
+static func _find_track(anim: Animation, bone: String) -> int:
+	for i in range(anim.get_track_count()):
+		if anim.track_get_path(i).get_subname_count() > 0 and RBAnim.bone_of(anim, i) == bone:
+			return i
+	return -1
+
+
+static func _count_type(anim: Animation, type: int) -> int:
+	var n := 0
+	for i in range(anim.get_track_count()):
+		if anim.track_get_type(i) == type:
+			n += 1
+	return n
 
 
 static func _test_presets(out: PackedStringArray) -> void:

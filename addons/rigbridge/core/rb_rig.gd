@@ -29,6 +29,8 @@ static func from_skeleton(skel: Skeleton3D, family: String = "") -> Dictionary:
 		return rig
 	var count := skel.get_bone_count()
 	var names := PackedStringArray()
+	var parents := PackedStringArray()
+	var lengths := PackedFloat64Array()
 	for i in range(count):
 		names.append(String(skel.get_bone_name(i)))
 	for i in range(count):
@@ -36,10 +38,14 @@ static func from_skeleton(skel: Skeleton3D, family: String = "") -> Dictionary:
 		var pname := ""
 		if p >= 0 and p < count:
 			pname = names[p]
-		(rig["parents"] as PackedStringArray).append(pname)
-		(rig["names"] as PackedStringArray).append(names[i])
-		(rig["lengths"] as PackedFloat64Array).append(skel.get_bone_rest(i).origin.length())
-	rig["depths"] = _depths(rig["parents"])
+		parents.append(pname)
+		lengths.append(skel.get_bone_rest(i).origin.length())
+	# Packed*Array is a *value* type: `rig["names"].append(x)` appends to a copy and the
+	# result is thrown away, which silently produced an empty snapshot. Fill locals, store once.
+	rig["names"] = names
+	rig["parents"] = parents
+	rig["lengths"] = lengths
+	rig["depths"] = _depths(parents)
 	rig["concepts"] = _concepts(names, family)
 	rig["required"] = _required(rig["concepts"])
 	renumber_chains(rig)
@@ -70,9 +76,11 @@ static func from_profile(profile: SkeletonProfile, family: String = "") -> Dicti
 	rig["names"] = names
 	rig["parents"] = parents
 	rig["depths"] = _depths(parents)
-	rig["lengths"] = PackedFloat64Array()
+	# A profile has no rest pose, so lengths are known-unknown; same value-copy rule as above.
+	var lengths := PackedFloat64Array()
 	for i in range(count):
-		(rig["lengths"] as PackedFloat64Array).append(0.0)
+		lengths.append(0.0)
+	rig["lengths"] = lengths
 	rig["concepts"] = _concepts(names, family)
 	var req := PackedInt32Array()
 	for i in range(count):

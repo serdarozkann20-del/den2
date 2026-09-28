@@ -11,6 +11,8 @@ Checks
                `NodePath(names, subnames, absolute)`), when `--classref` points at
                doc/classes; see rb_api_audit.py for how to get them.
   return-path  a `-> Type` function whose body never returns at its own block level.
+  packed-copy  mutating a Packed array fetched through `dict[key]` - it is a value, so the
+               write is lost (`rig["names"].append(x)` silently keeps the array empty).
   infer        `var x := <Variant>` (Dictionary/Array index, `.get()`, a helper
                without a return type) -> "Cannot infer the type of x ... doesn't have a set type".
   scope        a local used in a sibling block - GDScript scoping rules, which `gdparse`
@@ -296,6 +298,36 @@ def infer_problems(path, text, fns, funcs, consts, preloads):
     return out
 
 
+# ---------------------------------------------------------------------------
+# Packed*Array is a *value* type in Godot: `some_dict["names"].append(x)` (or
+# `(some_dict["names"] as PackedStringArray).append(x)`) mutates a temporary copy and the
+# change is lost. `Array`/`Dictionary` are references, so the same code shape is fine for
+# them - which is why this is easy to write and impossible to see in a review. A file that
+# builds its snapshot this way returns empty arrays and every caller quietly gets nothing.
+# ---------------------------------------------------------------------------
+
+_PACKED_MUTATORS = "append|push_back|push_front|insert|resize|remove_at|reverse|sort|fill|append_array|insert_array|rtrim|ltrim"
+
+
+def packed_copy_problems(path, text, packed_keys):
+    out = []
+    for no, line in enumerate(text.split("\n"), 1):
+        code = strip_noise(line)
+        if re.search(r"as Packed\w+\)\s*\.\s*(%s)\s*\(" % _PACKED_MUTATORS, code):
+            out.append(
+                "packed-copy    %s:%d mutates a copy - `(x[...] as Packed*)` is a value, append/assign into a"
+                " local and store it back" % (path, no)
+            )
+            continue
+        m = re.search(r"\[\"(\w+)\"\]\s*\.\s*(%s)\s*\(" % _PACKED_MUTATORS, code)
+        if m and m.group(1) in packed_keys:
+            out.append(
+                "packed-copy    %s:%d `[\"%s\"]` holds a Packed array - mutating it in place does nothing"
+                % (path, no, m.group(1))
+            )
+    return out
+
+
 def main():
     addon = sys.argv[1] if len(sys.argv) > 1 else "addons/rigbridge"
     classref = os.environ.get("GODOT_CLASSREF") or (sys.argv[2] if len(sys.argv) > 2 else "")
@@ -317,6 +349,13 @@ def main():
     for path in sorted(glob.glob(os.path.join(addon, "**", "*.gd"), recursive=True)):
         text = open(path).read()
         files[path] = {"lines": logical_lines(text), "text": text}
+
+    # Keys whose values are known to hold a Packed array, collected across the addon: the
+    # rig/report Dictionaries are built in one file and mutated in another.
+    packed_keys = set()
+    for text in [f["text"] for f in files.values()]:
+        packed_keys |= set(re.findall(r'"(\w+)":\s*Packed\w+\(', text))
+        packed_keys |= set(re.findall(r'\["(\w+)"\]\s*=\s*Packed\w+\(', text))
 
     # signatures of everything defined in the addon
     sigs = {}
@@ -363,6 +402,8 @@ def main():
                     )
 
         for p in scope_problems(path, f["text"], parse_funcs(f["lines"])):
+            problems.append(p)
+        for p in packed_copy_problems(path, f["text"], packed_keys):
             problems.append(p)
 
         # type inference
