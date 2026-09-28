@@ -278,15 +278,22 @@ part of your repo, so review the diff.
 **`Invalid call. Nonexistent function 'x' in base 'GDScript'`**, repeated all over the Output panel and
 pointing at the *callers*. The message is misleading: one preloaded module **failed to compile**, so the
 `GDScript` object reached through a `preload` const has no methods, and every call site complains about its
-own line. Scroll up to the first `SCRIPT ERROR: Parse Error:` line - that names the real file and line; the
-`ERROR:` flood below it is fallout. Three mistakes produce this, all rejected while parsing rather than by
-`gdparse`: a call that does not exist on a built-in type (`String.trim_left()` is the C# name, GDScript uses
-`lstrip()`), a `var` declared twice in the same block (`Identifier 'x' already declared in this scope`), and a
-Godot 3 constructor overload that 4.x removed (`NodePath(names, subnames, absolute)`). `dev/rb_static_checks.py`
-and `dev/rb_api_audit.py` check for all three offline; `dev/check_scripts.sh` asks the engine itself. The
-self-test also refuses to run with a broken module and says which file to look at. Separately: if a stale
-duplicate of the folder exists (`addons/rigbridge*`), delete it and remove `res://.godot/` so the editor
-rebuilds its caches.
+own line. The real cause is a `SCRIPT ERROR: Parse Error:` line scrolled past in the same panel, above the
+flood. Four mistakes produce this - all rejected while parsing, none by `gdparse`:
+
+* a call that does not exist on a built-in type (`String.trim_left()` is the C# name, GDScript uses `lstrip()`);
+* a `var` declared twice in the same block (`Identifier 'x' already declared in this scope`);
+* a Godot 3 constructor overload that 4.x removed (`NodePath(names, subnames, absolute)`);
+* a local used in a *sibling* block - `for`/`if` bodies have their own scope, so a variable named in one loop
+  is undefined in the next one, which bites hardest when a rename touches only one of the two uses.
+
+`dev/rb_static_checks.py` (last three) and `dev/rb_api_audit.py` (first) check these offline, and
+`dev/check_scripts.sh` asks the engine itself, which prints `file:line` for every error. The self-test does too:
+when a module does not expose the functions it should, it re-parses that file with a `Logger` attached and prints
+the engine's own message as `engine says line N: Parse Error: ...`, so the report alone is enough to fix it - no
+Output-panel archaeology. Separately: if a stale duplicate of the folder exists (`addons/rigbridge*`), delete it
+and remove `res://.godot/` so the editor rebuilds its caches.
+
 
 **`Bone name cannot be empty or contain ':' or '/'` + `Index p_bone = N is out of bounds`.** Godot 4.7's
 `Skeleton3D.add_bone()` rejects `:` in bone names while `set_bone_name()` allows it, so a test/build helper

@@ -20,9 +20,43 @@ const RBPipeline := preload("../core/rb_pipeline.gd")
 static var _aborted := false
 
 
-## A module that failed to compile makes *every* caller report
-## `Nonexistent function '...' in base 'GDScript'`, which buries the real cause in a wall of
-## lookalike errors (and fabricates dozens of FAIL lines). Say it once, plainly, first.
+## A module that fails to compile is only ever visible to its callers as
+## `Nonexistent function "x" in base "GDScript"`; the real `SCRIPT ERROR: Parse Error:` line
+## (with the file and line) goes to the Output panel, which is easy to miss. Godot 4.7 lets a
+## script install a `Logger` (`OS.add_logger`), so re-parsing the file with one attached puts
+## the engine's own message into the report itself.
+class ParseErrorLogger:
+	extends Logger
+
+	var wants := ""
+	var messages := PackedStringArray()
+
+	# The signature has to match `Logger._log_error` exactly; the trailing arguments are
+	# unused here, hence the underscore names.
+	func _log_error(function: String, file: String, line: int, code: String, rationale: String,
+			_editor_notify: bool, _error_type: int, _script_backtraces: Array) -> void:
+		if not file.is_empty() and not wants.is_empty() and file != wants:
+			return
+		var text := rationale
+		if text.is_empty():
+			text = function
+		messages.append("line %d: %s: %s" % [line, code, text])
+
+
+static func _parse_errors(path: String) -> PackedStringArray:
+	if path.is_empty() or not ClassDB.can_instantiate("Logger"):
+		return PackedStringArray()
+	var col := ParseErrorLogger.new()
+	col.wants = path
+	OS.add_logger(col)
+	# CACHE_MODE_REPLACE forces a fresh parse even though the script is already loaded.
+	ResourceLoader.load(path, "GDScript", ResourceLoader.CACHE_MODE_REPLACE)
+	OS.remove_logger(col)
+	return col.messages
+
+
+## Say it once, plainly, before the real tests run: a broken module would otherwise be reported
+## as dozens of lookalike `Nonexistent function` errors in unrelated files.
 static func _preflight(out: PackedStringArray) -> void:
 	var needed := {
 		RBName: ["normalize", "tokens", "strip_prefixes", "side_of", "clean_anim_name", "similarity"],
@@ -49,12 +83,21 @@ static func _preflight(out: PackedStringArray) -> void:
 			_ok(out, false, "a preloaded module is null - the preload paths are broken")
 			_aborted = true
 			continue
+		var dead := PackedStringArray()
 		for m in needed[scr]:
 			if not s.has_script_method(String(m)):
-				var msg := "%s does not expose '%s': that file did not compile" % [s.resource_path, m]
-				msg += ". Read the first 'SCRIPT ERROR: Parse Error' line in the Output panel."
-				_ok(out, false, msg)
-				_aborted = true
+				dead.append(String(m))
+		if dead.is_empty():
+			continue
+		_aborted = true
+		_ok(out, false, "%s did not compile (no %s in it)" % [s.resource_path, ", ".join(dead)])
+		var engine_said := _parse_errors(s.resource_path)
+		if engine_said.is_empty():
+			var hint := "no capture here: read the first 'SCRIPT ERROR: Parse Error' line in the Output panel"
+			hint += ", or run ./dev/check_scripts.sh with GODOT=<path to the editor binary>"
+			_ok(out, false, hint)
+		for e in engine_said:
+			_ok(out, false, "engine says " + String(e))
 
 
 static func run_all(verbose: bool = false) -> PackedStringArray:
@@ -340,7 +383,7 @@ static func _test_rig_families(out: PackedStringArray) -> void:
 	var rep3 := RBMatcher.match_rigs(RBRig.from_skeleton(sk3, "unknown"), target, {})
 	sk3.free()
 	_ok(out, not (rep3["required_missing"] as Array).is_empty(), "quadruped reports missing required bones")
-	_ok(out, not bool(rep3["ok"]), "quadruped is not reported as ok")
+	_ok(out, String(rep3["quality"]) != "good", "quadruped is not reported as fully matched (%s)" % String(rep3["quality"]))
 
 	# Bones with no anatomy in the name must produce nothing rather than guesswork.
 	var anon := [["bone_01", ""], ["bone_02", "bone_01"], ["bone_03", "bone_02"], ["bone_04", "bone_03"]]

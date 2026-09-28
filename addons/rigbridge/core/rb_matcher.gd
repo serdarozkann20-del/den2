@@ -157,7 +157,7 @@ static func match_rigs(source: Dictionary, target: Dictionary, opts: Dictionary 
 			if sc < float(w["threshold"]):
 				continue
 			pairs.append({"ti": ti, "si": si, "score": sc, "reasons": r["reasons"]})
-	pairs.sort_custom(_by_score_desc)
+	pairs.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["score"]) > float(b["score"]))
 
 	var used_target := {}
 	var used_source := {}
@@ -183,8 +183,8 @@ static func match_rigs(source: Dictionary, target: Dictionary, opts: Dictionary 
 		reasons[tname] = p["reasons"]
 
 	var ambiguous: Array = []
-	# NOTE: `tname` is already declared above in this function - GDScript rejects a second
-	# declaration in the same scope, so the runner-up loop uses its own name.
+	# `tname` above belongs to the previous loop's block, so this loop needs its own
+	# variable: GDScript scopes locals to the block they are declared in.
 	for ti in runner_up.keys():
 		var contested := String(tgt["names"][int(ti)])
 		if not mapping.has(contested):
@@ -195,7 +195,7 @@ static func match_rigs(source: Dictionary, target: Dictionary, opts: Dictionary 
 		if delta < 0.1:
 			ambiguous.append({
 				"target": contested,
-				"chosen": String(mapping[tname]),
+				"chosen": String(mapping[contested]),
 				"runner_up": String(alt["source"]),
 				"delta": delta,
 			})
@@ -259,10 +259,6 @@ static func match_rigs(source: Dictionary, target: Dictionary, opts: Dictionary 
 	}
 
 
-static func _by_score_desc(a, b) -> bool:
-	return float(a["score"]) > float(b["score"])
-
-
 ## Top candidates for one target bone, for the UI override menu.
 static func suggest(source: Dictionary, target: Dictionary, target_bone: String, limit: int = 8, opts: Dictionary = {}) -> Array:
 	var src: Dictionary = source.duplicate()
@@ -276,7 +272,7 @@ static func suggest(source: Dictionary, target: Dictionary, target_bone: String,
 		if sc <= 0.05:
 			continue
 		out.append({"source": String(src["names"][si]), "score": sc, "reasons": r["reasons"]})
-	out.sort_custom(_by_score_desc)
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["score"]) > float(b["score"]))
 	if out.size() > limit:
 		out.resize(limit)
 	return out

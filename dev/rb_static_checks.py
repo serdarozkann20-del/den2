@@ -11,6 +11,8 @@ Checks
                `NodePath(names, subnames, absolute)`), when `--classref` points at
                doc/classes; see rb_api_audit.py for how to get them.
   return-path  a `-> Type` function whose body never returns at its own block level.
+  scope        a local used in a sibling block - GDScript scoping rules, which `gdparse`
+               does not apply, so a renamed loop variable can silently outlive its block.
 
 A file with any of these does not compile, and Godot then reports `Nonexistent function
 '...' in base 'GDScript'` at *every* caller of it - which is how a single bad line turns
@@ -134,6 +136,59 @@ def matching_close(s, start):
     return len(s) - 1
 
 
+def block_paths(text):
+    """line_no -> tuple of the line numbers of the block openers that enclose that line."""
+    paths = {}
+    stack = []
+    for no, raw in enumerate(text.split("\n"), 1):
+        code = strip_noise(raw)
+        if not code.strip():
+            continue
+        ind = len(raw) - len(raw.lstrip("\t"))
+        while stack and stack[-1][0] >= ind:
+            stack.pop()
+        paths[no] = tuple(s[1] for s in stack)
+        if code.rstrip().endswith(":"):
+            stack.append((ind, no))
+    return paths
+
+
+# GDScript scopes a local to the block that declares it, so a name declared in one
+# `for`/`if` block is a parse error in the next sibling block. `gdparse` (syntax only)
+# accepts it - this pass catches it, and it is an easy mistake when two loops share a
+# variable name.
+def scope_problems(path, text, fns):
+    out = []
+    paths = block_paths(text)
+    file_scope = set(re.findall(r"^(?:@onready\s+)?(?:const|var)\s+(\w+)", text, re.M))
+    for fn in fns:
+        decl = {}
+        for no, code, ind in fn.body:
+            stmt = strip_noise(code).strip()
+            dm = re.match(r"var\s+([A-Za-z_]\w*)", stmt) or re.match(r"for\s+([A-Za-z_]\w*)\s+in\b", stmt)
+            if dm:
+                if dm.group(1) in file_scope:
+                    continue
+                dp = paths.get(no, ())
+                if stmt.startswith("for "):
+                    dp = dp + (no,)  # a loop variable lives in the loop body
+                decl[dm.group(1)] = (no, dp)  # a later declaration shadows in its own block
+                continue
+            for name in re.findall(r"\b([a-z_]\w*)\b", stmt):
+                if name not in decl or name in KEYWORDS:
+                    continue
+                dl, dp = decl[name]
+                if dl >= no:
+                    continue
+                if paths.get(no, ())[: len(dp)] != dp:
+                    out.append(
+                        "scope          %s:%d `%s` is used outside the block that declares it (declared on line %d)"
+                        % (path, no, name, dl)
+                    )
+                    decl[name] = (no, paths.get(no, ()))
+    return out
+
+
 def main():
     addon = sys.argv[1] if len(sys.argv) > 1 else "addons/rigbridge"
     classref = os.environ.get("GODOT_CLASSREF") or (sys.argv[2] if len(sys.argv) > 2 else "")
@@ -199,6 +254,9 @@ def main():
                         "return-path    %s:%d %s() -> %s has no `return` at the function's own indent"
                         % (path, fn.lineno, fn.name, m.group(1))
                     )
+
+        for p in scope_problems(path, f["text"], parse_funcs(f["lines"])):
+            problems.append(p)
 
         # arity
         for no, code in f["lines"]:
