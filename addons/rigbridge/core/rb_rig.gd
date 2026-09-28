@@ -45,7 +45,7 @@ static func from_skeleton(skel: Skeleton3D, family: String = "") -> Dictionary:
 	rig["names"] = names
 	rig["parents"] = parents
 	rig["lengths"] = lengths
-	rig["depths"] = _depths(parents)
+	rig["depths"] = _depths(names, parents)
 	rig["concepts"] = _concepts(names, family)
 	rig["required"] = _required(rig["concepts"])
 	renumber_chains(rig)
@@ -75,7 +75,7 @@ static func from_profile(profile: SkeletonProfile, family: String = "") -> Dicti
 		parents.append(String(profile.get_bone_parent(i)))
 	rig["names"] = names
 	rig["parents"] = parents
-	rig["depths"] = _depths(parents)
+	rig["depths"] = _depths(names, parents)
 	# A profile has no rest pose, so lengths are known-unknown; same value-copy rule as above.
 	var lengths := PackedFloat64Array()
 	for i in range(count):
@@ -105,14 +105,16 @@ static func _concepts(names: PackedStringArray, family: String) -> PackedStringA
 	return out
 
 
-static func _depths(parents: PackedStringArray) -> PackedInt32Array:
-	# Depth by walking parents by name; memoised, cycle-safe.
+static func _depths(names: PackedStringArray, parents: PackedStringArray) -> PackedInt32Array:
+	# Depth by walking parents by name; cycle-safe. The lookup table has to map each bone's
+	# OWN name to its index: `parents` maps a parent name to the index of the child that
+	# mentions it, which walks nowhere and made every chain look shallower than it is.
 	var index := {}
-	for i in range(parents.size()):
-		index[String(parents[i])] = i
+	for i in range(names.size()):
+		index[String(names[i])] = i
 	var out := PackedInt32Array()
 	for i in range(parents.size()):
-		out.append(-1)
+		out.append(0)
 	for i in range(parents.size()):
 		var d := 0
 		var cur := i

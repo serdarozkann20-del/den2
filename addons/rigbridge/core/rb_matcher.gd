@@ -7,7 +7,6 @@
 extends RefCounted
 
 const RBBones := preload("./rb_bones.gd")
-const RBConcepts := preload("./rb_concepts.gd")
 const RBName := preload("./rb_name.gd")
 const RBRig := preload("./rb_rig.gd")
 const DEFAULTS := {
@@ -224,10 +223,14 @@ static func match_rigs(source: Dictionary, target: Dictionary, opts: Dictionary 
 	for ti in range((tgt["names"] as PackedStringArray).size()):
 		if int(tgt["required"][ti]) == 1:
 			total += 1
+	# Count required bones that got a source, using the target's own `required` flags - the
+	# same measure `required_missing` is built from. Counting by concept instead disagrees with
+	# it (chain renumbering turns `Chest` into `spine.02`, which is not a required concept id),
+	# so a fully mapped humanoid rig reported "poor".
+	var tgt_names: PackedStringArray = tgt["names"]
 	var req_ok := 0
-	for tname3 in mapping.keys():
-		var c := String(tgt["concepts"][_index_of(tgt["names"], String(tname3))])
-		if c in RBConcepts.required_concepts():
+	for ti in range(tgt_names.size()):
+		if int(tgt["required"][ti]) == 1 and mapping.has(String(tgt_names[ti])):
 			req_ok += 1
 	var ratio := 1.0
 	if total > 0:

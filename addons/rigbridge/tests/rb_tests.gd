@@ -300,6 +300,9 @@ static func _test_snapshot(out: PackedStringArray) -> void:
 	_ok(out, String((rig["names"] as PackedStringArray)[0]) == "Hips", "snapshot names follow bone order")
 	_ok(out, String((rig["parents"] as PackedStringArray)[2]) == "spine", "snapshot parents are names, not indices")
 	_ok(out, int((rig["depths"] as PackedInt32Array)[2]) == 2, "snapshot depths come from the hierarchy")
+	var ds: PackedInt32Array = rig["depths"]
+	_ok(out, int(ds[0]) == 0 and int(ds[1]) == 1 and int(ds[2]) == 2 and int(ds[3]) == 3,
+		"depth rises one per level (got %s)" % str(ds))
 	_ok(out, String((rig["concepts"] as PackedStringArray)[2]) == "spine.02",
 		"chain ranks renumbered (got %s)" % String((rig["concepts"] as PackedStringArray)[2]))
 	sk.free()
@@ -363,7 +366,9 @@ static func _test_matcher(out: PackedStringArray) -> void:
 	sk.free()
 	var missing: Array = rep["required_missing"]
 	_ok(out, missing.size() <= 2, "at most 2 required bones unmapped (got %s)" % str(missing))
-	_ok(out, String(rep["quality"]) != "poor", "quality not poor (%s)" % String(rep["quality"]))
+	_ok(out, String(rep["quality"]) == "good",
+		"a fully mapped humanoid rig reports good (got %s, ratio %.2f)"
+		% [String(rep["quality"]), float(rep["required_ratio"])])
 	var mapping: Dictionary = rep["mapping"]
 	_ok(out, String(mapping.get("Hips", "")) == "mixamorig:Hips", "Hips mapped")
 	_ok(out, String(mapping.get("LeftUpperArm", "")) == "mixamorig:LeftArm", "LeftUpperArm -> mixamorig:LeftArm")
