@@ -111,7 +111,8 @@ static func process_clip(entry: Dictionary, ctx: Dictionary) -> Dictionary:
 				anim,
 				map,
 				String(opts.get("skeleton_name", "GeneralSkeleton")),
-				bool(opts.get("drop_unmapped", true))
+				bool(opts.get("drop_unmapped", true)),
+				PackedStringArray(ctx.get("source_bones", []))
 			)
 			rep["moved"] = int(r["moved"])
 			rep["dropped"] = r["dropped"]

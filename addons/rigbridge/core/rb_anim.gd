@@ -50,27 +50,31 @@ static func join_path(names: PackedStringArray, subs: PackedStringArray, absolut
 
 
 ## The bone part of a track path (its subname), or empty for property/method tracks.
+##
+## The FIRST subname, not the last: `AnimationMixer` resolves a bone track with
+## `path.get_subname(0)` (animation_mixer.cpp), and Godot 4.7's own post-import plugins read
+## the same one (`post_import_plugin_skeleton_renamer.cpp`, `..._track_organizer.cpp`).
 static func bone_of(anim: Animation, idx: int) -> String:
 	var p := anim.track_get_path(idx)
 	if p.get_subname_count() == 0:
 		return ""
-	return String(p.get_subname(p.get_subname_count() - 1))
+	return String(p.get_subname(0))
 
 
 static func is_bone_track(anim: Animation, idx: int) -> bool:
 	if anim.track_get_type(idx) not in BONE_TRACK_TYPES:
 		return false
-	return anim.track_get_path(idx).get_subname_count() > 0
+	# Exactly one subname, the rule Godot 4.7's own import plugins use: a path carrying more
+	# than one subname cannot name a bone (':' also separates parts, and `Skeleton3D.add_bone`
+	# forbids it), so rewriting it would only produce a track the mixer ignores.
+	return anim.track_get_path(idx).get_subname_count() == 1
 
 
 static func set_bone(anim: Animation, idx: int, bone: String, node_override: String = "") -> void:
 	var parts := split_path(anim.track_get_path(idx))
-	var subs: PackedStringArray = parts["subs"]
 	var names: PackedStringArray = parts["names"]
-	if subs.size() > 0:
-		subs[subs.size() - 1] = bone
-	else:
-		subs = PackedStringArray([bone])
+	# One subname, always: that is the shape AnimationMixer resolves (`get_subname(0)`).
+	var subs := PackedStringArray([bone])
 	if not node_override.is_empty():
 		names = PackedStringArray([node_override])
 	anim.track_set_path(idx, join_path(names, subs, parts["absolute"]))
@@ -104,7 +108,8 @@ static func to_profile_space(
 	anim: Animation,
 	bone_to_profile: Dictionary,
 	skeleton_name: String = "GeneralSkeleton",
-	drop_unmapped: bool = true
+	drop_unmapped: bool = true,
+	known_bones: PackedStringArray = PackedStringArray()
 ) -> Dictionary:
 	# NodePath splits on ':' so a bone named `mixamorig:LeftArm` can arrive as just
 	# `LeftArm`; index a loose map by trailing segment to cover both spellings.
@@ -132,7 +137,9 @@ static func to_profile_space(
 			moved += 1
 			i += 1
 			continue
-		if drop_unmapped:
+		if drop_unmapped and (known_bones.is_empty() or known_bones.has(b)):
+			# With the source skeleton's bone list, only a real bone can be dropped: a
+			# `Skeleton3D:position`-style node track would otherwise vanish as "unmapped".
 			dropped.append(b)
 			anim.remove_track(i)
 			continue

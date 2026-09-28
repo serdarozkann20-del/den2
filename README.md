@@ -257,13 +257,15 @@ part of your repo, so review the diff.
   `--docs` at `doc/classes` in a godot checkout.
 * **Module wiring**: `dev/rb_preload_audit.py` verifies that each `preload()` const really exposes the members
   its callers use and that no preload path is absolute (the folder stays relocatable, no global class names).
-* **Analyzer-shaped mistakes**: `dev/rb_static_checks.py` reports a `var` declared twice in one block, a call
-  whose argument count no signature of ours accepts, a typed function with no `return`, and removed engine
-  constructor overloads. All 16 files are clean with it.
+* **Analyzer-shaped mistakes**: `dev/rb_static_checks.py` reports a `var` declared twice in one block, a local
+  used in a sibling block, `var x := <Variant>` (a plain `Dictionary`/`Array` index, `.get()`, or a helper with
+  no return type), in-place mutation of a `Packed*Array` reached through `dict[key]` (a value copy - the write is
+  lost), a call whose argument count no signature of ours accepts, a typed function with no `return`, and removed
+  engine constructor overloads. All 16 files are clean with it.
 * **Compile check** (needs a Godot binary - this is the one that finds analyzer errors `gdparse` cannot):
   `./dev/check_scripts.sh`, optionally `GODOT=/path/to/godot ./dev/check_scripts.sh`.
 * **Syntax**: all 16 scripts pass `gdparse` (gdtoolkit 4.5).
-* **Matching logic**: validated offline against the real 4.7 `SkeletonProfileHumanoid` (56 bones, 17 required)
+* **Matching logic**: validated offline against the real 4.7 `SkeletonProfileHumanoid` (56 bones, 19 required)
   with a one-to-one Python port of `RBName`+`RBBones`+`RBRig`+`RBMatcher`. Mixamo, Unreal, VRM, Ready Player
   Me, Rigify, 3ds Max Biped, prefix-less Mixamo and twist-heavy rigs all map with **zero required-bone
   misses**; a quadruped is correctly *refused* and an unnamed rig produces **no** mapping instead of guessing.
@@ -273,8 +275,14 @@ part of your repo, so review the diff.
   `resource_importer_scene.cpp` and the three skeleton `post_import_plugin`s. The `BoneMap` rules (keys must
   be profile bones, `profile` must be assigned first, `Resource("res://...")` is how a `.import` ConfigFile
   references it) come from `scene/resources/bone_map.cpp` + `core/variant/variant_parser.cpp`.
-* **Not yet executed against a real Godot editor binary** - the above is static analysis. If a key is
-  rejected on your build, use **Calibrate keys…** — that path cannot go stale.
+* **In-engine**: the whole suite runs inside the editor - 118 checks, **0 failures** on Godot 4.7.2.stable
+  (Windows). It compiles every script of the addon, then checks naming, the concept table, the rig-snapshot
+  contract, the matcher against five rig families, track-path surgery, and a Mode B round trip that writes a
+  synthetic "imported" `.tscn`, extracts from it, retargets, saves the `AnimationLibrary` as `.tres`, reloads it
+  and asserts the track still resolves with `get_subname(0)`.
+* **Still needs your files**: a real `.fbx`/`.glb` through *your* build's importer - the `.import` key set (mode A),
+  the reimport, and attaching a library to a live `AnimationPlayer`. If a key is rejected on your build, use
+  **Calibrate keys…** - that path clones your own working key set, so it cannot go stale.
 
 ## Troubleshooting
 
@@ -316,6 +324,14 @@ assembled as a string and any `:` inside a bone name is dropped, because `NodePa
 would animate a bone named `mixamorig`, i.e. nothing. There is no way to express such a name as a subname in
 Godot 4 (the multi-part `NodePath` constructor is gone) and there is no need: `Skeleton3D` cannot hold a bone
 with a colon in the first place.
+
+Two consequences are encoded in the code (and checked by the self-test's `_test_paths`): **a bone track is a
+3D track with exactly one subname** - the same rule Godot 4.7's own `post_import_plugin_skeleton_renamer` and
+`..._track_organizer` use - so a path that parses into two subnames is left untouched rather than rewritten into
+something the mixer ignores; and the bone is read with `get_subname(0)`, *first*, because that is what
+`AnimationMixer` looks up. Rewriting always emits a single subname. `to_profile_space()` also takes the source
+skeleton's bone list (`known_bones`), because a `Skeleton3D:position` node track is indistinguishable from a bone
+track by type alone - without that list, `drop_unmapped` would delete it as "unmapped".
 
 **`Formatting error in string "Bone name cannot be empty or contain ':' or '/'.': not all arguments
 converted`.** Upstream: that engine message is passed an argument it has no placeholder for

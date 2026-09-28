@@ -388,6 +388,8 @@ func run(opts: Dictionary) -> Dictionary:
 			"opts": clip_opts,
 			"bone_to_profile": RBMatcher.invert(mapping),
 			"hips_bones": hips,
+			# what the source skeleton really has, so `drop_unmapped` cannot eat node tracks
+			"source_bones": (extracted["source_bones"] as PackedStringArray),
 		}
 		var moved_total := 0
 		var dropped_total := 0

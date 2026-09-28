@@ -168,12 +168,14 @@ static func run_all(verbose: bool = false) -> PackedStringArray:
 		return out
 	_test_names(out)
 	_test_snapshot(out)
+	_test_paths(out)
 	_test_concepts(out)
 	_test_profile(out)
 	_test_matcher(out)
 	_test_rig_families(out)
 	_test_anim(out)
 	_test_presets(out)
+	_test_mode_b(out)
 	var fails := 0
 	for l in out:
 		if String(l).begins_with("FAIL"):
@@ -190,6 +192,129 @@ static func _ok(out: PackedStringArray, cond: bool, label: String) -> void:
 		out.append("PASS " + label)
 	else:
 		out.append("FAIL " + label)
+
+
+## The track-path contract is Godot's own, not ours: a bone track carries exactly one
+## subname and `AnimationMixer` resolves it with `get_subname(0)` - the same rule
+## `post_import_plugin_skeleton_renamer.cpp` applies. Anything else must be left untouched,
+## because a rewritten-but-unresolvable path animates nothing and looks like success.
+static func _test_paths(out: PackedStringArray) -> void:
+	var anim := Animation.new()
+	var t_ok := anim.add_track(Animation.TYPE_ROTATION_3D)
+	anim.track_set_path(t_ok, NodePath("Armature/Skeleton3D:mixamorig_LeftArm"))
+	var t_odd := anim.add_track(Animation.TYPE_ROTATION_3D)
+	# 'A:B:C' parses into two subnames: the first one is what the mixer would look for.
+	anim.track_set_path(t_odd, NodePath("Armature/Skeleton3D:mixamorig:LeftArm"))
+	var t_prop := anim.add_track(Animation.TYPE_POSITION_3D)
+	anim.track_set_path(t_prop, NodePath("Armature/Skeleton3D:position"))
+	_ok(out, RBAnim.bone_of(anim, t_ok) == "mixamorig_LeftArm", "bone_of reads the first subname")
+	_ok(out, RBAnim.is_bone_track(anim, t_ok), "one subname of a 3D track is a bone track")
+	_ok(out, not RBAnim.is_bone_track(anim, t_odd), "two subnames are not a bone track")
+	var r := RBAnim.to_profile_space(
+		anim, {"mixamorig_LeftArm": "upper_arm.l"}, "GeneralSkeleton", false,
+		PackedStringArray(["mixamorig_LeftArm", "mixamorig_Hips"]))
+	_ok(out, int(r["moved"]) == 1, "only the resolvable track is rewritten (got %d)" % int(r["moved"]))
+	_ok(out, String(anim.track_get_path(t_ok).get_subname(0)) == "upper_arm.l",
+		"the mixer lookup finds the new bone")
+	_ok(out, anim.track_get_path(t_ok).get_subname_count() == 1, "the rewritten path keeps one subname")
+	_ok(out, String(anim.track_get_path(t_odd).get_subname(0)) == "mixamorig", "the odd track is left alone")
+	_ok(out, RBAnim.bone_of(anim, t_prop) == "position", "a node property track reads its own subname")
+	# with the source bone list, the node track is not "unmapped" and must survive
+	var r2 := RBAnim.to_profile_space(anim, {}, "GeneralSkeleton", true, PackedStringArray(["mixamorig_Hips"]))
+	_ok(out, anim.get_track_count() == 3, "known_bones protects the node track (got %d)" % anim.get_track_count())
+	# without it, an unmapped bone is dropped and reported
+	var r3 := RBAnim.to_profile_space(anim, {"upper_arm.l": "other"}, "GeneralSkeleton", true)
+	_ok(out, int(r3["dropped"].size()) == 1, "an unmapped bone track is dropped and reported")
+
+
+## Mode B, end to end: a synthetic "imported" model on disk -> extract -> retarget ->
+## assemble -> save as .tres -> reload. This is the path that has to work with no import
+## options touched at all, so it is exercised as far as it can be without a real FBX.
+static func _test_mode_b(out: PackedStringArray) -> void:
+	var dir := "user://rigbridge_selftest"
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir))
+	var scene_path := dir + "/rig_model.tscn"
+	var lib_path := dir + "/walking.tres"
+
+	var root := Node3D.new()
+	root.name = "Model"
+	var skel := Skeleton3D.new()
+	skel.name = "Skeleton3D"
+	root.add_child(skel)
+	var idx := {}
+	var bones := [["mixamorig_Hips", ""], ["mixamorig_Spine", "mixamorig_Hips"],
+		["mixamorig_LeftArm", "mixamorig_Spine"]]
+	for i in range(bones.size()):
+		skel.add_bone(String(bones[i][0]))
+		idx[String(bones[i][0])] = i
+	for i in range(bones.size()):
+		var par := String(bones[i][1])
+		if not par.is_empty():
+			skel.set_bone_parent(i, int(idx[par]))
+	var player := AnimationPlayer.new()
+	player.name = "AnimationPlayer"
+	root.add_child(player)
+	var anim := Animation.new()
+	var tr := anim.add_track(Animation.TYPE_ROTATION_3D)
+	anim.track_set_path(tr, NodePath("../Skeleton3D:mixamorig_LeftArm"))
+	anim.track_insert_key(tr, 0.0, Quaternion.IDENTITY)
+	var src_lib := AnimationLibrary.new()
+	# the `-loop` suffix is the naming hint Mode B reads
+	src_lib.add_animation(&"Walking-loop", anim)
+	player.add_animation_library(&"Mixamo", src_lib)
+
+	var ps := PackedScene.new()
+	var pack_err := ps.pack(root)
+	_ok(out, pack_err == OK, "the fixture scene packs (code %d)" % pack_err)
+	if pack_err != OK:
+		RBPreset.free_node(root)
+		return
+	_ok(out, ResourceSaver.save(ps, scene_path) == OK, "the fixture scene saves")
+
+	var ext := RBLibrary.extract(scene_path, {"deep": true})
+	var entries: Array = ext["animations"]
+	_ok(out, entries.size() == 1, "extract finds the clip (got %d)" % entries.size())
+	_ok(out, (ext["source_bones"] as PackedStringArray).size() == 3, "extract reads the source bones")
+	_ok(out, String(ext["skeleton"]) == "Skeleton3D", "extract names the source skeleton")
+	if entries.is_empty():
+		RBPreset.free_node(root)
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(scene_path))
+		return
+
+	var copts := {"skeleton_name": "GeneralSkeleton", "drop_unmapped": true, "loop_detect": true}
+	var ctx := {
+		"opts": copts,
+		"bone_to_profile": {"mixamorig_LeftArm": "upper_arm.l", "mixamorig_Hips": "hips"},
+		"source_bones": (ext["source_bones"] as PackedStringArray),
+	}
+	var rep := RBLibrary.process_clip(entries[0], ctx)
+	_ok(out, int(rep["moved"]) == 1, "process_clip retargets the track (got %d)" % int(rep["moved"]))
+	_ok(out, bool(rep["loop"]), "the -loop hint turns looping on")
+	var entry: Dictionary = entries[0]
+	entry["name"] = String(RBLibrary.clip_name(String(entry["name"]), scene_path, 0, copts))
+	_ok(out, not String(entry["name"]).is_empty(), "the clip gets a usable name (%s)" % String(entry["name"]))
+	var built := RBLibrary.build_library(entries, {})
+	var nm := StringName(String(entry["name"]))
+	_ok(out, built != null and built.has_animation(nm), "the library holds the clip")
+	_ok(out, RBLibrary.save_library(built, lib_path) == OK, "the library saves as .tres")
+
+	var again := ResourceLoader.load(lib_path, "AnimationLibrary", ResourceLoader.CACHE_MODE_REPLACE) as AnimationLibrary
+	_ok(out, again != null and again.has_animation(nm), "the saved library reloads with the clip")
+	if again != null and again.has_animation(nm):
+		var kept := again.get_animation(nm)
+		_ok(out, kept != null and kept.get_track_count() == 1, "the reloaded clip keeps its track")
+		if kept != null and kept.get_track_count() > 0:
+			_ok(out, String(kept.track_get_path(0).get_subname(0)) == "upper_arm.l",
+				"the reloaded track still resolves with get_subname(0)")
+			_ok(out, kept.loop_mode == Animation.LOOP_LINEAR,
+				"the loop flag survives the save (got %d)" % kept.loop_mode)
+	var merged := AnimationLibrary.new()
+	_ok(out, RBLibrary.merge(merged, built).size() == 1, "merge adds the clip")
+	_ok(out, RBLibrary.merge(merged, built).size() == 0, "merge does not duplicate it")
+
+	RBPreset.free_node(root)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(scene_path))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(lib_path))
 
 
 static func _test_names(out: PackedStringArray) -> void:
