@@ -22,7 +22,10 @@ rewrites the animation's track paths (mode B). That is the whole design philosop
 
 ## Install
 
-1. Copy `addons/rigbridge/` into your project — anywhere you like, e.g. `res://addons/rigbridge/`.
+1. Copy the `rigbridge/` folder so it lands **directly** inside `res://addons/` — i.e. the plugin file must
+   be at `res://addons/rigbridge/plugin.cfg`. If you copy the whole `addons/` directory *into* `addons/` you get
+   `res://addons/addons/rigbridge/`, which the editor does not list as a plugin (it scans one level only); the
+   folder can be renamed, just keep it one level deep. `dev/` belongs at the **project root**, next to `addons/`.
 2. **Project ▸ Project Settings ▸ Plugins ▸ RigBridge ▸ Enable**.
 3. A **RigBridge** bottom panel appears (also reachable from **Project ▸ Tools ▸ RigBridge: show panel**).
 
@@ -279,20 +282,29 @@ part of your repo, so review the diff.
 pointing at the *callers*. The message is misleading: one preloaded module **failed to compile**, so the
 `GDScript` object reached through a `preload` const has no methods, and every call site complains about its
 own line. The real cause is a `SCRIPT ERROR: Parse Error:` line scrolled past in the same panel, above the
-flood. Four mistakes produce this - all rejected while parsing, none by `gdparse`:
+flood. Five mistakes produce this - all rejected while parsing, none by `gdparse`:
 
 * a call that does not exist on a built-in type (`String.trim_left()` is the C# name, GDScript uses `lstrip()`);
 * a `var` declared twice in the same block (`Identifier 'x' already declared in this scope`);
 * a Godot 3 constructor overload that 4.x removed (`NodePath(names, subnames, absolute)`);
 * a local used in a *sibling* block - `for`/`if` bodies have their own scope, so a variable named in one loop
   is undefined in the next one, which bites hardest when a rename touches only one of the two uses.
+* `var x := <Variant>` - a type cannot be inferred from a plain `Dictionary`/`Array` index or from a helper that
+  declares no return type (`Cannot infer the type of "x" variable because the value doesn't have a set type`);
+  say what it is (`var x: Dictionary = d[key]`) or cast it (`var x := int(d[key])`).
 
-`dev/rb_static_checks.py` (last three) and `dev/rb_api_audit.py` (first) check these offline, and
-`dev/check_scripts.sh` asks the engine itself, which prints `file:line` for every error. The self-test does too:
-when a module does not expose the functions it should, it re-parses that file with a `Logger` attached and prints
-the engine's own message as `engine says line N: Parse Error: ...`, so the report alone is enough to fix it - no
-Output-panel archaeology. Separately: if a stale duplicate of the folder exists (`addons/rigbridge*`), delete it
-and remove `res://.godot/` so the editor rebuilds its caches.
+`dev/rb_static_checks.py` (last three, plus block scoping and `var x := <Variant>` inference) and
+`dev/rb_api_audit.py` (first) check these offline, and `dev/check_scripts.sh` asks the engine itself.
+
+The self-test now does the same from inside the editor: after naming the module that did not compile, it
+re-compiles **every** `.gd` in the addon through the running engine (`ResourceLoader.load(..., CACHE_MODE_REPLACE)`
+while a `Logger` is attached) and prints each complaint with its own file and line -
+`res://addons/rigbridge/core/rb_matcher.gd line 194: Parse Error: ...`. That matters because a file whose
+*dependency* failed is never parsed at all (it reports `Compile Error: Failed to compile depended scripts` at
+line 0), so its own errors only appear once the root cause is gone; the sweep retries those cascade-only files
+in the same run. One report, every real error. Separately: if a stale duplicate of the folder exists
+(`addons/rigbridge*`, or the doubled `addons/addons/rigbridge`), delete it and remove `res://.godot/` so the
+editor rebuilds its caches.
 
 
 **`Bone name cannot be empty or contain ':' or '/'` + `Index p_bone = N is out of bounds`.** Godot 4.7's

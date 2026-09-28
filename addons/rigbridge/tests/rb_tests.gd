@@ -43,8 +43,11 @@ class ParseErrorLogger:
 		messages.append("line %d: %s: %s" % [line, code, text])
 
 
+## Force a fresh parse of `path` while a Logger is attached and return whatever the engine
+## complained about. (`Logger` itself is abstract - subclassing it is the documented way to
+## install one, and `OS.add_logger` restores the console output when it is removed again.)
 static func _parse_errors(path: String) -> PackedStringArray:
-	if path.is_empty() or not ClassDB.can_instantiate("Logger"):
+	if path.is_empty():
 		return PackedStringArray()
 	var col := ParseErrorLogger.new()
 	col.wants = path
@@ -91,13 +94,67 @@ static func _preflight(out: PackedStringArray) -> void:
 			continue
 		_aborted = true
 		_ok(out, false, "%s did not compile (no %s in it)" % [s.resource_path, ", ".join(dead)])
-		var engine_said := _parse_errors(s.resource_path)
-		if engine_said.is_empty():
-			var hint := "no capture here: read the first 'SCRIPT ERROR: Parse Error' line in the Output panel"
-			hint += ", or run ./dev/check_scripts.sh with GODOT=<path to the editor binary>"
-			_ok(out, false, hint)
-		for e in engine_said:
-			_ok(out, false, "engine says " + String(e))
+	_compile_sweep(out)
+
+
+## Re-compile *every* script in the addon, one at a time, through the engine. A file whose
+## dependency was broken is never parsed at all (it only reports `Compile Error: Failed to
+## compile depended scripts` at line 0), so its own errors stay hidden; once the dependency
+## parses again they surface, which is why cascade-only results are retried. This is what puts
+## `file:line` in the report instead of the Output panel.
+static func _compile_sweep(out: PackedStringArray) -> void:
+	var root := (RBName as Script).resource_path.get_base_dir().get_base_dir()
+	var files := PackedStringArray()
+	_collect_scripts(root, files)
+	files.sort()
+	if files.is_empty():
+		_ok(out, false, "self-test cannot list " + root + " to re-check it")
+		_aborted = true
+		return
+	var pending := files
+	var captured := 0
+	for pass_no in range(3):
+		var retry := PackedStringArray()
+		for entry in pending:
+			var path := String(entry)
+			var found := _parse_errors(path)
+			var real := PackedStringArray()
+			for l in found:
+				var text := String(l)
+				# a cascade line says nothing about this file; try it again later
+				if text.contains("depended scripts"):
+					continue
+				real.append(text)
+			for text in real:
+				captured += 1
+				_ok(out, false, "%s %s" % [path, text])
+				_aborted = true
+			if not found.is_empty() and real.is_empty():
+				retry.append(path)
+		if retry.is_empty():
+			break
+		pending = retry
+	if _aborted and captured == 0:
+		var hint := "no engine capture: read the first 'SCRIPT ERROR: Parse Error' line in the Output panel"
+		hint += ", or run ./dev/check_scripts.sh with GODOT=<path to the editor binary>"
+		_ok(out, false, hint)
+
+
+static func _collect_scripts(dir: String, into: PackedStringArray) -> void:
+	var d := DirAccess.open(dir)
+	if d == null:
+		return
+	d.list_dir_begin()
+	var f := d.get_next()
+	while f != "":
+		var p := dir.path_join(f)
+		if d.current_is_dir():
+			if not f.begins_with(".") and f != "test":
+				_collect_scripts(p, into)
+		elif f.ends_with(".gd"):
+			into.append(p)
+		f = d.get_next()
+	d.list_dir_end()
 
 
 static func run_all(verbose: bool = false) -> PackedStringArray:

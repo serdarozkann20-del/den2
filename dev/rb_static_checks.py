@@ -11,6 +11,8 @@ Checks
                `NodePath(names, subnames, absolute)`), when `--classref` points at
                doc/classes; see rb_api_audit.py for how to get them.
   return-path  a `-> Type` function whose body never returns at its own block level.
+  infer        `var x := <Variant>` (Dictionary/Array index, `.get()`, a helper
+               without a return type) -> "Cannot infer the type of x ... doesn't have a set type".
   scope        a local used in a sibling block - GDScript scoping rules, which `gdparse`
                does not apply, so a renamed loop variable can silently outlive its block.
 
@@ -189,6 +191,111 @@ def scope_problems(path, text, fns):
     return out
 
 
+# ---------------------------------------------------------------------------
+# Type inference: `var x := <expression>` is rejected with
+#   "Cannot infer the type of "x" variable because the value doesn't have a set type"
+# whenever the expression is Variant-typed - indexing a plain Dictionary/Array,
+# `.get()`, a call to a function that declares no return type, ...  `gdparse` accepts all
+# of it, so this pass resolves each initializer against what the addon declares.
+# ---------------------------------------------------------------------------
+
+# built-in calls and accessors known to return a hard type
+_VARIANT_METHODS = {
+    "get", "get_indexed", "pop_back", "pop_front", "front", "back", "call", "callv",
+    "get_meta", "get_property_list", "get_script_constant_map", "get_class_list",
+    "get_setting", "get_value", "parse_string", "get_var", "get_line", "get_csv_line",
+    "get_node", "get_node_or_null", "duplicate",  # duplicate() is typed; kept out below
+}
+_HARD_TYPES = set("""String StringName int float bool Vector2 Vector3 Color Transform2D Transform3D
+Rect2 Rect2i Array Dictionary Node Node3D Object Variant RefCounted Resource Script GDScript
+Animation AnimationLibrary AnimationPlayer Skeleton3D BoneMap SkeletonProfile PackedStringArray
+PackedInt32Array PackedFloat32Array PackedByteArray NodePath Signal Callable Basis Quaternion""".split())
+_PACKED = ("Packed", "String", "Array[", "Dict")
+
+
+def _typed_call(name, funcs):
+    rng = funcs.get(name)
+    return rng is not None and rng.get("ret") not in (None, "", "void", "Variant")
+
+
+# Known-hard-type sources inside a file: parameters, typed `var`s and obviously typed
+# initialisers. Enough to tell `some_packed[0]` (typed) from `some_dict[k]` (Variant).
+def local_types(text):
+    types = {}
+    for m in re.finditer(r"func\s+\w+\s*\(([^)]*)\)", text):
+        for arg in split_args(m.group(1)):
+            am = re.match(r"\s*(\w+)\s*:\s*([\w\[\]]+)", arg)
+            if am:
+                types[am.group(1)] = am.group(2)
+    for m in re.finditer(r"^\s*(?:@onready\s+)?var\s+(\w+)\s*:\s*([\w\[\]]+)", text, re.M):
+        types[m.group(1)] = m.group(2)
+    for m in re.finditer(r"^\s*(?:@onready\s+)?var\s+(\w+)\s*:=\s*(.+?)\s*(?:#.*)?$", text, re.M):
+        rhs = m.group(2).strip()
+        if re.match(r'^"', rhs) or re.match(r"^&", rhs):
+            types[m.group(1)] = "String"
+        elif re.match(r"^Packed\w+\(", rhs):
+            types[m.group(1)] = re.match(r"^(Packed\w+)", rhs).group(1)
+    return types
+
+
+def infer_problems(path, text, fns, funcs, consts, preloads):
+    out = []
+    ltypes = local_types(text)
+    for m in re.finditer(r"^\s*(?:@onready\s+)?var\s+(\w+)\s*:=\s*(.+?)\s*(?:#.*)?$", text, re.M):
+        var, rhs = m.group(1), m.group(2).strip()
+        line = text[: m.start()].count("\n") + 1
+        reason = None
+        # cast(...) / `as Type` / literal containers settle the type by themselves
+        if re.match(r"^(%s)\s*\(" % "|".join(sorted(_HARD_TYPES, key=len, reverse=True)), rhs):
+            continue
+        # a call to a function that does declare a return type is typed, whatever it contains
+        oc = re.match(r"^(?:([A-Za-z_]\w*)\.)?([a-z_]\w*)\s*\(", rhs)
+        if oc:
+            owner, name = oc.group(1), oc.group(2)
+            if owner is None and name in funcs and _typed_call(name, funcs):
+                continue
+        if re.search(r"\bas\s+[A-Za-z_]\w*", rhs) or re.search(r"\bis\s+[A-Za-z_]\w*", rhs):
+            continue
+        if re.match(r"^[{\[]", rhs) or re.match(r"^[A-Z]\w*\.new\(", rhs):
+            continue
+        # container indexing without a declared element type
+        im = re.match(r"^(\w+)((?:\[.*?\])+)$", rhs)
+        if im:
+            base = im.group(1)
+            dt = ltypes.get(base, "")
+            if not dt.startswith(_PACKED):
+                reason = "indexing %s%s yields Variant" % (base, ": " + dt if dt else " (untyped)")
+        # `.get(...)` and friends return Variant
+        vm = re.search(r"\.(%s)\s*\(" % "|".join(sorted(_VARIANT_METHODS - {"duplicate"})), rhs)
+        if vm and reason is None:
+            reason = "`.%s()` returns Variant" % vm.group(1)
+        # a helper that declares no return type is Variant
+        cm = re.match(r"^(?:([A-Za-z_]\w*)\.)?([a-z_]\w*)\s*\(", rhs)
+        if cm and reason is None:
+            owner, name = cm.group(1), cm.group(2)
+            if owner is None and name in funcs and not _typed_call(name, funcs):
+                reason = "%s() declares no return type" % name
+            elif owner in preloads:
+                tgt = os.path.basename(os.path.normpath(os.path.join(os.path.dirname(path), preloads[owner])))
+                if (tgt, name) in funcs and not _typed_call(name, funcs[(tgt, name)]["funcs"] if False else {}):
+                    reason = "%s.%s() declares no return type" % (owner, name)
+                elif (tgt, name) in funcs:
+                    pass
+        # attribute of an untyped Dictionary (`d.key` form)
+        am = re.match(r"^(\w+)\.(\w+)$", rhs)
+        if am and reason is None:
+            base = am.group(1)
+            dt = ltypes.get(base, "")
+            if dt == "Dictionary" or (not dt and re.search(r"(?:var|const)\s+%s\s*:?=?\s*\{" % re.escape(base), text)):
+                reason = "`%s.%s` is a Dictionary lookup, which is Variant" % (base, am.group(2))
+        if reason:
+            out.append(
+                "infer          %s:%d `var %s := ...` - %s; declare the type instead"
+                % (path, line, var, reason)
+            )
+    return out
+
+
 def main():
     addon = sys.argv[1] if len(sys.argv) > 1 else "addons/rigbridge"
     classref = os.environ.get("GODOT_CLASSREF") or (sys.argv[2] if len(sys.argv) > 2 else "")
@@ -256,6 +363,14 @@ def main():
                     )
 
         for p in scope_problems(path, f["text"], parse_funcs(f["lines"])):
+            problems.append(p)
+
+        # type inference
+        local_funcs = {}
+        for fn in parse_funcs(f["lines"]):
+            head = next((l for n, l in f["lines"] if re.search(r"\bfunc\s+%s\s*\(" % fn.name, l)), "")
+            local_funcs[fn.name] = {"ret": (re.search(r"->\s*([\w\[\] ]+)", head).group(1).strip() if "->" in head else "")}
+        for p in infer_problems(path, f["text"], f["lines"], local_funcs, consts, consts):
             problems.append(p)
 
         # arity

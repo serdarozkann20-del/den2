@@ -190,7 +190,8 @@ static func match_rigs(source: Dictionary, target: Dictionary, opts: Dictionary 
 		if not mapping.has(contested):
 			continue
 		var top := float(scores[contested])
-		var alt := runner_up[int(ti)]
+		# A plain Dictionary indexes to Variant, whose type cannot be inferred: name it.
+		var alt: Dictionary = runner_up[int(ti)]
 		var delta: float = top - float(alt["score"])
 		if delta < 0.1:
 			ambiguous.append({
