@@ -58,8 +58,8 @@ static func from_profile(profile: SkeletonProfile, family: String = "") -> Dicti
 	}
 	if profile == null:
 		return rig
-	# Skeleton3D exposes the bone count as the read-only `bone_size` *property*;
-	# the `get_bone_size()` method is Godot 3 and does not exist in 4.x.
+	# SkeletonProfile exposes the bone count as the `bone_size` property; the
+	# `get_bone_size()` method is Godot 3 and does not exist in 4.x.
 	var count: int = profile.bone_size
 	var names := PackedStringArray()
 	for i in range(count):
