@@ -117,11 +117,28 @@ static func has_import_file(model_path: String) -> bool:
 	return FileAccess.file_exists(model_path + ".import")
 
 
+## Load a resource, including one this very session wrote to disk.
+##
+## `ResourceLoader.exists()` answers from the resource cache and the editor's import
+## bookkeeping, so a `.tres`/`.tscn` saved a moment ago - especially into `user://`, which the
+## editor does not scan at all - can report "does not exist", and a read-back then silently
+## yields nothing. Mode B writes `Animation`/`AnimationLibrary`/`BoneMap` files and reads them
+## back in the same run, so every read-back in this plugin goes through here.
+static func load_any(path: String, type: String = "") -> Resource:
+	if path.is_empty():
+		return null
+	if ResourceLoader.exists(path):
+		var cached := ResourceLoader.load(path, type)
+		if cached != null:
+			return cached
+	if not FileAccess.file_exists(path):
+		return null
+	return ResourceLoader.load(path, type, ResourceLoader.CACHE_MODE_REPLACE)
+
+
 ## Load the imported scene for a model/animation file (returns null before import).
 static func load_imported_root(path: String) -> Node:
-	if not ResourceLoader.exists(path):
-		return null
-	var res := ResourceLoader.load(path)
+	var res := load_any(path)
 	if res is PackedScene:
 		var ps := res as PackedScene
 		if ps.can_instantiate():

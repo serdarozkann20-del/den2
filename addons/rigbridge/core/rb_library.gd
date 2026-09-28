@@ -15,7 +15,7 @@ static func extract(path: String, opts: Dictionary = {}) -> Dictionary:
 	var source_bones := PackedStringArray()
 	var skeleton_name := ""
 	# `animation_library` import mode yields an AnimationLibrary directly.
-	var direct = ResourceLoader.load(path) if ResourceLoader.exists(path) else null
+	var direct = RBPreset.load_any(path)
 	if direct is AnimationLibrary:
 		var dlib := direct as AnimationLibrary
 		for n in dlib.get_animation_list():
@@ -34,9 +34,17 @@ static func extract(path: String, opts: Dictionary = {}) -> Dictionary:
 		}
 	var root := RBPreset.load_imported_root(path)
 	if root == null:
+		# Naming the stage is the difference between "your file is wrong" and "the plugin
+		# cannot see it": the fixes could not be more different.
+		if direct == null:
+			errors.append("nothing readable at %s - is the file imported?" % path)
+		elif direct is PackedScene:
+			errors.append("%s is a PackedScene with no instantiable state" % path.get_file())
+		else:
+			errors.append("%s loaded as %s, not a scene or an AnimationLibrary" % [path.get_file(), direct.get_class()])
 		return {
 			"animations": result,
-			"errors": PackedStringArray(["cannot load imported scene for " + path]),
+			"errors": errors,
 			"source_bones": source_bones,
 			"skeleton": "",
 		}

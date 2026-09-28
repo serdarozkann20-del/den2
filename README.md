@@ -315,6 +315,15 @@ in the same run. One report, every real error. Separately: if a stale duplicate 
 editor rebuilds its caches.
 
 
+**`no animations found` from mode B, on a file that clearly has them.** `RBLibrary.extract()` reports which
+stage failed inside the same line - `nothing readable at res://x (is the file imported?)`, `X.glb is a PackedScene
+with no instantiable state`, or `no AnimationPlayer in ...`. The first means the file has not been through the
+importer yet (open the project once, or press Reimport); the last means the model's animations live somewhere the
+scan does not look, so check that an `AnimationPlayer` (or a `.anim`/`AnimationLibrary` resource) sits in the
+scene. Reading resources back goes through `RBPreset.load_any()` for a reason: `ResourceLoader.exists()` answers
+from the editor's `EditorFileSystem`, which only knows `res://` and only after a scan - so a file this session
+just wrote, or a model reimported a moment ago, would otherwise look like it does not exist.
+
 **`Bone name cannot be empty or contain ':' or '/'` + `Index p_bone = N is out of bounds`.** Godot 4.7's
 `Skeleton3D.add_bone()` rejects `:` in bone names while `set_bone_name()` allows it, so a test/build helper
 that adds `mixamorig:Hips` directly ends up with an *empty* skeleton and every later index fails. RigBridge

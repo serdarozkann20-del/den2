@@ -269,13 +269,21 @@ static func _test_mode_b(out: PackedStringArray) -> void:
 	if pack_err != OK:
 		RBPreset.free_node(root)
 		return
-	_ok(out, ResourceSaver.save(ps, scene_path) == OK, "the fixture scene saves")
+	# FLAG_CHANGE_PATH is what `save_library()` uses: it registers the resource under the path,
+	# which is exactly the state a file the plugin wrote this session is in.
+	_ok(out, ResourceSaver.save(ps, scene_path, ResourceSaver.FLAG_CHANGE_PATH) == OK, "the fixture scene saves")
+	# the round trip on its own, so a failure below points at our scanning and not at the disk
+	var reloaded := RBPreset.load_any(scene_path, "PackedScene")
+	_ok(out, reloaded is PackedScene, "the scene reads back from disk (got %s)" % str(reloaded))
 
 	var ext := RBLibrary.extract(scene_path, {"deep": true})
 	var entries: Array = ext["animations"]
-	_ok(out, entries.size() == 1, "extract finds the clip (got %d)" % entries.size())
-	_ok(out, (ext["source_bones"] as PackedStringArray).size() == 3, "extract reads the source bones")
-	_ok(out, String(ext["skeleton"]) == "Skeleton3D", "extract names the source skeleton")
+	var why := " [%s]" % str(ext["errors"]) if not (ext["errors"] as PackedStringArray).is_empty() else ""
+	_ok(out, entries.size() == 1, "extract finds the clip (got %d)%s" % [entries.size(), why])
+	_ok(out, (ext["source_bones"] as PackedStringArray).size() == 3,
+		"extract reads the source bones (got %d)%s" % [(ext["source_bones"] as PackedStringArray).size(), why])
+	_ok(out, String(ext["skeleton"]) == "Skeleton3D",
+		"extract names the source skeleton (got '%s')%s" % [String(ext["skeleton"]), why])
 	if entries.is_empty():
 		RBPreset.free_node(root)
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(scene_path))
