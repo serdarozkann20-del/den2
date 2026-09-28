@@ -275,7 +275,8 @@ part of your repo, so review the diff.
   `resource_importer_scene.cpp` and the three skeleton `post_import_plugin`s. The `BoneMap` rules (keys must
   be profile bones, `profile` must be assigned first, `Resource("res://...")` is how a `.import` ConfigFile
   references it) come from `scene/resources/bone_map.cpp` + `core/variant/variant_parser.cpp`.
-* **In-engine**: the whole suite runs inside the editor - **163 checks, 0 failures** on Godot 4.7.2.stable.
+* **In-engine**: the whole suite runs inside the editor - **146 checks, 0 failures** measured on Godot 4.7.2.stable
+  (two more groups have been added since that run: the `BoneMap` contract and the preset cache).
   It compiles every script of the addon, then checks naming, the 35-case concept table, the rig-snapshot
   contract, the matcher against five rig families (Mixamo, Rigify, 3ds Max Biped, a quadruped that must be
   refused, an unnamed rig that must not be guessed), track-path surgery against the engine's own bone-track
