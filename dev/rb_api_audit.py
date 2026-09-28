@@ -77,6 +77,11 @@ def load_allow(docs):
         classes.add(os.path.basename(path)[:-4].lstrip("@"))
         txt = open(path, encoding="utf-8", errors="replace").read()
         named |= set(re.findall(r'<(?:method|constructor|signal)\s+[^>]*name="([^"]+)"', txt))
+        # accessors count as methods even with no <method> entry: `Node.set_owner` is bound in
+        # ClassDB but documented only as the setter of the `owner` member, and an audit that
+        # calls that "unknown" pushes people toward the uglier workaround
+        named |= set(re.findall(r'<(?:member|property)\s+[^>]*setter="([^"]+)"', txt))
+        named |= set(re.findall(r'<(?:member|property)\s+[^>]*getter="([^"]+)"', txt))
         constants |= set(re.findall(r'<constant\s+name="([^"]+)"', txt))
         members |= set(re.findall(r'<member\s+name="([^"]+)"', txt))
         members |= set(re.findall(r'<property\s+name="([^"]+)"', txt))

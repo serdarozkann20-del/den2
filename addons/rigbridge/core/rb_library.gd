@@ -50,7 +50,13 @@ static func extract(path: String, opts: Dictionary = {}) -> Dictionary:
 		}
 	var players := RBPreset.find_animation_players(root)
 	if players.is_empty():
-		errors.append("no AnimationPlayer in " + path)
+		if root.get_child_count() == 0:
+			# The classic script-built-scene trap: `PackedScene.pack()` writes a node only when
+			# its `owner` is the root, so a scene built and packed by code can save "empty".
+			errors.append("%s instantiated with no children - were their `owner`s set before packing?"
+				% path.get_file())
+		else:
+			errors.append("no AnimationPlayer in " + path)
 	var skel := RBPreset.find_skeleton(root)
 	if skel != null:
 		skeleton_name = String(skel.get_name())

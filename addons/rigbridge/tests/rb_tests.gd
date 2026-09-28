@@ -241,6 +241,10 @@ static func _test_mode_b(out: PackedStringArray) -> void:
 	var skel := Skeleton3D.new()
 	skel.name = "Skeleton3D"
 	root.add_child(skel)
+	# `PackedScene.pack()` saves a node only if its owner is the root (packed_scene.cpp:
+	# "owner is always saved ... part of scene and not instanced"), so scenes built by script
+	# have to set it - otherwise the packed file holds an empty root.
+	skel.set_owner(root)
 	var idx := {}
 	var bones := [["mixamorig_Hips", ""], ["mixamorig_Spine", "mixamorig_Hips"],
 		["mixamorig_LeftArm", "mixamorig_Spine"]]
@@ -254,6 +258,7 @@ static func _test_mode_b(out: PackedStringArray) -> void:
 	var player := AnimationPlayer.new()
 	player.name = "AnimationPlayer"
 	root.add_child(player)
+	player.set_owner(root)
 	var anim := Animation.new()
 	var tr := anim.add_track(Animation.TYPE_ROTATION_3D)
 	anim.track_set_path(tr, NodePath("../Skeleton3D:mixamorig_LeftArm"))
@@ -275,6 +280,11 @@ static func _test_mode_b(out: PackedStringArray) -> void:
 	# the round trip on its own, so a failure below points at our scanning and not at the disk
 	var reloaded := RBPreset.load_any(scene_path, "PackedScene")
 	_ok(out, reloaded is PackedScene, "the scene reads back from disk (got %s)" % str(reloaded))
+	var probe := RBPreset.load_imported_root(scene_path)
+	_ok(out, probe != null and probe.get_child_count() == 2,
+		"the packed scene keeps its children (got %d)" % (probe.get_child_count() if probe != null else -1))
+	if probe != null:
+		RBPreset.free_node(probe)
 
 	var ext := RBLibrary.extract(scene_path, {"deep": true})
 	var entries: Array = ext["animations"]

@@ -324,6 +324,13 @@ scene. Reading resources back goes through `RBPreset.load_any()` for a reason: `
 from the editor's `EditorFileSystem`, which only knows `res://` and only after a scan - so a file this session
 just wrote, or a model reimported a moment ago, would otherwise look like it does not exist.
 
+**`extract` finds `no AnimationPlayer`, or a packed scene comes out empty.** `PackedScene.pack()` writes a
+node only when its `owner` is the root (`packed_scene.cpp`: *"owner is always saved"*, otherwise *"part of scene
+and not instanced"*), so any scene assembled from code must call `child.set_owner(root)` after `add_child()` before
+packing - otherwise the saved `.tscn` holds a bare root and every later scan sees nothing. `extract()` says so
+explicitly (`instantiated with no children - were their owners set before packing?`) instead of reporting an empty
+animation list.
+
 **`Bone name cannot be empty or contain ':' or '/'` + `Index p_bone = N is out of bounds`.** Godot 4.7's
 `Skeleton3D.add_bone()` rejects `:` in bone names while `set_bone_name()` allows it, so a test/build helper
 that adds `mixamorig:Hips` directly ends up with an *empty* skeleton and every later index fails. RigBridge
