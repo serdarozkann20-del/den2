@@ -275,11 +275,15 @@ part of your repo, so review the diff.
   `resource_importer_scene.cpp` and the three skeleton `post_import_plugin`s. The `BoneMap` rules (keys must
   be profile bones, `profile` must be assigned first, `Resource("res://...")` is how a `.import` ConfigFile
   references it) come from `scene/resources/bone_map.cpp` + `core/variant/variant_parser.cpp`.
-* **In-engine**: the whole suite runs inside the editor - 118 checks, **0 failures** on Godot 4.7.2.stable
-  (Windows). It compiles every script of the addon, then checks naming, the concept table, the rig-snapshot
-  contract, the matcher against five rig families, track-path surgery, and a Mode B round trip that writes a
-  synthetic "imported" `.tscn`, extracts from it, retargets, saves the `AnimationLibrary` as `.tres`, reloads it
-  and asserts the track still resolves with `get_subname(0)`.
+* **In-engine**: the whole suite runs inside the editor - **163 checks, 0 failures** on Godot 4.7.2.stable.
+  It compiles every script of the addon, then checks naming, the 35-case concept table, the rig-snapshot
+  contract, the matcher against five rig families (Mixamo, Rigify, 3ds Max Biped, a quadruped that must be
+  refused, an unnamed rig that must not be guessed), track-path surgery against the engine's own bone-track
+  rule, the `BoneMap` contract (keys limited to profile bones, the importer's `find_profile_bone_name()`
+  lookup, a profile-less map stores nothing, and a save/reload that keeps the profile), the JSON preset cache
+  round trip and key derivation, and a Mode B end-to-end run that writes a synthetic "imported" `.tscn`,
+  extracts from it, retargets, saves the `AnimationLibrary` as `.tres`, reloads it and asserts the track still
+  resolves with `get_subname(0)` and that the loop flag survived.
 * **Still needs your files**: a real `.fbx`/`.glb` through *your* build's importer - the `.import` key set (mode A),
   the reimport, and attaching a library to a live `AnimationPlayer`. If a key is rejected on your build, use
   **Calibrate keys…** - that path clones your own working key set, so it cannot go stale.

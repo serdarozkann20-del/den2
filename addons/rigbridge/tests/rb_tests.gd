@@ -175,6 +175,8 @@ static func run_all(verbose: bool = false) -> PackedStringArray:
 	_test_rig_families(out)
 	_test_anim(out)
 	_test_presets(out)
+	_test_presets_io(out)
+	_test_bonemap(out)
 	_test_mode_b(out)
 	var fails := 0
 	for l in out:
@@ -333,6 +335,76 @@ static func _test_mode_b(out: PackedStringArray) -> void:
 	RBPreset.free_node(root)
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(scene_path))
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(lib_path))
+
+
+## `BoneMap` carries one hard engine rule - a key must be a bone of its own profile, or
+## `set_skeleton_bone_name()` refuses - and the scene importer ignores *every* `retarget/*`
+## option unless a BoneMap is set at all. Both are asserted here, including a save/reload,
+## because a map that loads back without its profile is inert in exactly the quiet way that
+## looks like a mapping problem.
+static func _test_bonemap(out: PackedStringArray) -> void:
+	var sk := _mixamo_rig()
+	var analysis := RBBoneMapBuilder.analyze(sk, null, {})
+	var profile := analysis["profile"] as SkeletonProfile
+	var mapping: Dictionary = (analysis["report"] as Dictionary)["mapping"]
+	var built := RBBoneMapBuilder.build_with_report(profile, mapping)
+	_ok(out, int(built["set"]) > 15, "BoneMap fills %d profile slots" % int(built["set"]))
+	_ok(out, (built["dropped"] as PackedStringArray).is_empty(),
+		"every mapping key is a profile bone (dropped %s)" % str(built["dropped"]))
+	var map := built["map"] as BoneMap
+	_ok(out, map != null, "a BoneMap is produced")
+	if map == null:
+		sk.free()
+		return
+	_ok(out, String(map.find_profile_bone_name("mixamorig:LeftArm")) == "LeftUpperArm",
+		"the importer's lookup answers profile bones (got %s)"
+		% String(map.find_profile_bone_name("mixamorig:LeftArm")))
+	var odd := RBBoneMapBuilder.build_with_report(profile, {"NotABone": "mixamorig:Hips", "Hips": "mixamorig:Hips"})
+	# compared by size + element, not with `== [...]`: `dropped` is a PackedStringArray and a
+	# literal is an Array, and Godot does not consider those equal.
+	var odd_drop := odd["dropped"] as PackedStringArray
+	_ok(out, odd_drop.size() == 1 and String(odd_drop[0]) == "NotABone",
+		"non-profile keys are reported, not pushed in (got %s)" % str(odd_drop))
+	_ok(out, int(odd["set"]) == 1, "the valid half of the same mapping still lands")
+	var no_profile := RBBoneMapBuilder.build_with_report(null, mapping)
+	_ok(out, int(no_profile["set"]) == 0 and not (no_profile["dropped"] as PackedStringArray).is_empty(),
+		"a BoneMap with no profile stores nothing")
+	var path := "user://rigbridge_selftest/human.tres"
+	_ok(out, RBBoneMapBuilder.save(map, path) == OK, "the BoneMap saves")
+	var again := RBPreset.load_any(path, "BoneMap") as BoneMap
+	_ok(out, again != null, "the saved BoneMap reads back")
+	if again != null:
+		_ok(out, String(again.find_profile_bone_name("mixamorig:LeftArm")) == "LeftUpperArm",
+			"the reloaded map answers the same lookup")
+		_ok(out, again.profile != null and again.profile.bone_size == profile.bone_size,
+			"the reloaded map keeps a profile of the right size")
+	_ok(out, RBBoneMapBuilder.map_path_for("res://a/Walking.fbx", "GeneralSkeleton", "res://.rigbridge")
+		== "res://.rigbridge/walking_generalskeleton_bonemap.tres",
+		"generated map paths are predictable")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	sk.free()
+
+
+## The preset cache is what makes a second animation file on the same rig instant; a broken
+## round trip would silently re-map everything (or, worse, load a stale mapping).
+static func _test_presets_io(out: PackedStringArray) -> void:
+	var names := PackedStringArray(["mixamorig:Hips", "mixamorig:LeftArm", "mixamorig:Spine"])
+	var key := RBPreset.key_for(names)
+	_ok(out, not key.is_empty(), "preset key derived (%s)" % key)
+	_ok(out, key == RBPreset.key_for(PackedStringArray(["mixamorig:Spine", "mixamorig:LeftArm", "mixamorig:Hips"])),
+		"the key ignores bone order")
+	_ok(out, key != RBPreset.key_for(PackedStringArray(["mixamorig:Hips", "mixamorig:LeftArm"])),
+		"a different rig shape gets a different key")
+	var data := {"mapping": {"LeftUpperArm": "mixamorig:LeftArm"}, "quality": "good", "profile": "godot_humanoid"}
+	_ok(out, RBPreset.save_preset(key, data) == OK, "the preset saves")
+	var back := RBPreset.load_preset(key)
+	_ok(out, not back.is_empty(), "the preset loads back")
+	_ok(out, String((back.get("mapping", {}) as Dictionary).get("LeftUpperArm", "")) == "mixamorig:LeftArm",
+		"the nested mapping survives JSON")
+	_ok(out, String(back.get("quality", "")) == "good", "the scalar fields survive too")
+	_ok(out, RBPreset.list_presets().size() > 0, "the preset shows up in the listing")
+	_ok(out, RBPreset.load_preset("absent_" + key).is_empty(), "an unknown key loads as empty, not as {}")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(RBPreset.preset_path(key)))
 
 
 static func _test_names(out: PackedStringArray) -> void:
