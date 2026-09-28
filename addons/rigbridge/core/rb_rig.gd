@@ -58,16 +58,15 @@ static func from_profile(profile: SkeletonProfile, family: String = "") -> Dicti
 	}
 	if profile == null:
 		return rig
-	var count: int = profile.get_bone_size()
+	# Skeleton3D exposes the bone count as the read-only `bone_size` *property*;
+	# the `get_bone_size()` method is Godot 3 and does not exist in 4.x.
+	var count: int = profile.bone_size
 	var names := PackedStringArray()
 	for i in range(count):
 		names.append(String(profile.get_bone_name(i)))
 	var parents := PackedStringArray()
 	for i in range(count):
-		var pname := ""
-		if profile.has_method("get_bone_parent"):
-			pname = String(profile.get_bone_parent(i))
-		parents.append(pname)
+		parents.append(String(profile.get_bone_parent(i)))
 	rig["names"] = names
 	rig["parents"] = parents
 	rig["depths"] = _depths(parents)
@@ -77,11 +76,11 @@ static func from_profile(profile: SkeletonProfile, family: String = "") -> Dicti
 	rig["concepts"] = _concepts(names, family)
 	var req := PackedInt32Array()
 	for i in range(count):
-		var is_req := 1
-		if profile.has_method("is_required"):
-			is_req = 1 if bool(profile.is_required(i)) else 0
-		else:
-			is_req = _required_one(String(rig["concepts"][i]))
+		# A profile knows which bones a humanoid retarget really needs; fall back to
+		# our own concept requirement when the profile marks everything optional.
+		var is_req := 1 if bool(profile.is_required(i)) else 0
+		if is_req == 0 and _required_one(String(rig["concepts"][i])) == 1:
+			is_req = 1
 		req.append(is_req)
 	rig["required"] = req
 	renumber_chains(rig)

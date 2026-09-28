@@ -67,7 +67,9 @@ static func normalize(raw: String) -> String:
 			out += c
 	while out.contains("__"):
 		out = out.replace("__", "_")
-	return out.trim_left("_").trim_right("_")
+	# NOTE: Godot's String has no trim_left/trim_right (that's the C# API);
+	# lstrip/rstrip take a set of characters to remove.
+	return out.lstrip("_").rstrip("_")
 
 
 static func tokens(raw: String) -> PackedStringArray:

@@ -279,7 +279,7 @@ static func pose_hint(skel: Skeleton3D) -> Dictionary:
 
 static func _find_any(skel: Skeleton3D, candidates: PackedStringArray) -> int:
 	for c in candidates:
-		var idx := skel.get_bone_index(StringName(String(c)))
+		var idx := skel.find_bone(StringName(String(c)))
 		if idx >= 0:
 			return idx
 	# loose match on normalized names

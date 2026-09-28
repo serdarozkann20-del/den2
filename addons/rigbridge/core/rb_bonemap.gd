@@ -36,16 +36,34 @@ static func analyze(skel: Skeleton3D, profile: SkeletonProfile = null, opts: Dic
 
 
 ## `{profile_bone: skeleton_bone}` -> BoneMap.
+## A BoneMap can only store keys that its profile knows about (the engine's
+## `set_skeleton_bone_name()` refuses anything else), so keys outside the profile are
+## reported instead of being pushed in.
 static func build(profile: SkeletonProfile, mapping: Dictionary) -> BoneMap:
+	return build_with_report(profile, mapping)["map"] as BoneMap
+
+
+static func build_with_report(profile: SkeletonProfile, mapping: Dictionary) -> Dictionary:
 	var map := BoneMap.new()
+	var dropped := PackedStringArray()
+	var set_count := 0
+	if profile == null:
+		# Without a profile a BoneMap holds nothing at all.
+		for k in mapping.keys():
+			dropped.append(String(k))
+		return {"map": map, "dropped": dropped, "set": 0}
 	map.profile = profile
 	for k in mapping.keys():
 		var profile_bone := String(k)
 		var bone := String(mapping[k])
 		if bone.is_empty():
 			continue
+		if profile.find_bone(StringName(profile_bone)) < 0:
+			dropped.append(profile_bone)
+			continue
 		map.set_skeleton_bone_name(StringName(profile_bone), StringName(bone))
-	return map
+		set_count += 1
+	return {"map": map, "dropped": dropped, "set": set_count}
 
 
 ## Write the BoneMap next to the rig it belongs to.

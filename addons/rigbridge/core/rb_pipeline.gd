@@ -165,7 +165,19 @@ func save_mapping_preset(path: String, info: Dictionary) -> void:
 ## Write + reload the BoneMap for a mapping. Returns `{path, resource}`.
 func save_bonemap(info: Dictionary, profile: SkeletonProfile, out_dir: String, tag: String) -> Dictionary:
 	var rep: Dictionary = info["report"]
-	var map := RBBoneMapBuilder.build(profile, rep["mapping"])
+	# A BoneMap can only carry the bones its SkeletonProfile knows; keys outside it are
+	# dropped by the engine, so report that instead of silently writing a partial map.
+	var built: Dictionary = RBBoneMapBuilder.build_with_report(profile, rep["mapping"])
+	var map := built["map"] as BoneMap
+	var dropped: PackedStringArray = built["dropped"]
+	if not dropped.is_empty():
+		var shown := ", ".join(PackedStringArray(dropped.slice(0, 8)))
+		var suffix := "" if dropped.size() <= 8 else ", ..."
+		_log(
+			"warn",
+			"%d mapping key(s) are not bones of the target SkeletonProfile and stay unmapped: %s%s"
+			% [dropped.size(), shown, suffix]
+		)
 	var names: PackedStringArray = info["names"]
 	var hash_part := String(RBPreset.key_for(names)).get_slice("-", 0)
 	var target := out_dir.path_join("%s_%s_bonemap.tres" % [RBPreset.sanitize(tag), hash_part])
@@ -177,8 +189,8 @@ func save_bonemap(info: Dictionary, profile: SkeletonProfile, out_dir: String, t
 	if res == null:
 		_log("error", "BoneMap saved but cannot be reloaded: " + target)
 		return {}
-	_log("info", "BoneMap -> %s  (%d bones mapped)" % [target, int(rep["matched"])])
-	return {"path": target, "resource": res}
+	_log("info", "BoneMap -> %s  (%d/%d bones in map)" % [target, int(built["set"]), int(rep["matched"])])
+	return {"path": target, "resource": res, "set": int(built["set"]), "dropped": dropped}
 
 
 func _import_opts(info: Dictionary, opts: Dictionary, as_library: bool) -> Dictionary:

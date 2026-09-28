@@ -248,6 +248,10 @@ static func build_node_values(bone_map: Resource, opts: Dictionary) -> Dictionar
 static func configure(model_path: String, bone_map: Resource, opts: Dictionary = {}) -> Dictionary:
 	if not exists(model_path):
 		return {"ok": false, "error": "no .import sidecar (import the file once first)"}
+	if bone_map != null and String(bone_map.get_path()).is_empty():
+		# The .import file references resources by path (`Resource("res://...")`); an
+		# in-memory BoneMap would serialize to an empty reference and break the import.
+		return {"ok": false, "error": "the BoneMap has no path: save it to disk before configuring the import"}
 	var node_key := String(opts.get("node_key", ""))
 	if node_key.is_empty():
 		node_key = find_node_key(model_path)

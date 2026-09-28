@@ -246,24 +246,40 @@ part of your repo, so review the diff.
 
 ## Status / verification
 
-* Syntax: all 15 scripts pass `gdparse` (gdtoolkit 4.5).
-* Matching logic: validated offline against the real 4.7 `SkeletonProfileHumanoid` (56 bones) with a
-  one-to-one Python port of `RBName`+`RBBones`+`RBRig`+`RBMatcher`. Mixamo, Unreal, VRM, Ready Player Me,
-  Rigify, 3ds Max Biped, prefix-less Mixamo and twist-heavy rigs all map with **zero required-bone misses**; a
-  quadruped is correctly *refused* and an unnamed rig produces **no** mapping instead of guessing.
-  Those same cases run in-engine as `RBTests` (Tool menu → *run self-test*, or `--selftest`).
-* The `retarget/*` option names, types and defaults are taken from Godot 4.7's `resource_importer_scene.cpp`
-  and the three skeleton `post_import_plugin`s, not from blog posts.
-* Not yet executed against a real Godot editor binary. If a key is rejected on your build, use
-  **Calibrate keys…** — that path cannot go stale.
+* **Engine API**: every method, constant and property the plugin touches on an engine type was checked
+  against Godot 4.7's class reference (805 classes) by `dev/rb_api_audit.py` - that catches the bug class
+  that used to make this addon hard to debug (a call the analyzer rejects, reported as
+  `Nonexistent function ... in base 'GDScript'` in every caller). Re-run it after an engine update:
+  `python3 dev/rb_api_audit.py --docs /path/to/godot/doc/classes`.
+* **Module wiring**: `dev/rb_preload_audit.py` verifies that each `preload()` const really exposes the members
+  its callers use and that no preload path is absolute (the folder stays relocatable, no global class names).
+* **Compile check** (needs a Godot binary - this is the one that finds analyzer errors `gdparse` cannot):
+  `./dev/check_scripts.sh`, optionally `GODOT=/path/to/godot ./dev/check_scripts.sh`.
+* **Syntax**: all 16 scripts pass `gdparse` (gdtoolkit 4.5).
+* **Matching logic**: validated offline against the real 4.7 `SkeletonProfileHumanoid` (56 bones, 17 required)
+  with a one-to-one Python port of `RBName`+`RBBones`+`RBRig`+`RBMatcher`. Mixamo, Unreal, VRM, Ready Player
+  Me, Rigify, 3ds Max Biped, prefix-less Mixamo and twist-heavy rigs all map with **zero required-bone
+  misses**; a quadruped is correctly *refused* and an unnamed rig produces **no** mapping instead of guessing.
+  Those same cases run in-engine as `RBTests` (dock button, `Project ▸ Tools ▸ RigBridge: run self-test`, or
+  `--selftest`).
+* **Import options**: the 18 `retarget/*` keys, their types and enum values come from 4.7's
+  `resource_importer_scene.cpp` and the three skeleton `post_import_plugin`s. The `BoneMap` rules (keys must
+  be profile bones, `profile` must be assigned first, `Resource("res://...")` is how a `.import` ConfigFile
+  references it) come from `scene/resources/bone_map.cpp` + `core/variant/variant_parser.cpp`.
+* **Not yet executed against a real Godot editor binary** - the above is static analysis. If a key is
+  rejected on your build, use **Calibrate keys…** — that path cannot go stale.
 
 ## Troubleshooting
 
-**`Invalid call. Nonexistent function \'normalize\' in base \'GDScript\'`** (or any other RigBridge
-function). A `class_name` lookup hit a stale or shadowing registration instead of this plugin's file.
-Current builds cannot hit it — the plugin no longer registers global classes — but if you upgraded from an
-older copy: delete the duplicate `addons/rigbridge*` folder, close the project, remove `res://.godot/`
-(the editor rebuilds its caches), reopen.
+**`Invalid call. Nonexistent function 'x' in base 'GDScript'`**, repeated all over the Output panel and
+pointing at the *callers*. The message is misleading: one preloaded module **failed to compile**, so the
+`GDScript` object reached through a `preload` const has no methods, and every call site complains about its
+own line. Scroll up to the first `SCRIPT ERROR: Parse Error:` line - that names the real file and line; the
+`ERROR:` flood below it is fallout. The usual cause is a call that does not exist on a built-in type, because
+Godot's analyzer rejects it while parsing (e.g. `String.trim_left()` is the C# name; GDScript uses
+`lstrip()`). RigBridge now ships a static audit of every engine call, constant and property against the full
+4.7 class reference for exactly this reason. Separately: if a stale duplicate of the folder exists
+(`addons/rigbridge*`), delete it and remove `res://.godot/` so the editor rebuilds its caches.
 
 **`Bone name cannot be empty or contain ':' or '/'` + `Index p_bone = N is out of bounds`.** Godot 4.7's
 `Skeleton3D.add_bone()` rejects `:` in bone names while `set_bone_name()` allows it, so a test/build helper

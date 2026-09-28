@@ -630,7 +630,7 @@ func _run(opts: Dictionary) -> void:
 	var player: AnimationPlayer = null
 	if not target_player_path.is_empty() and editor != null:
 		var scene := editor.get_edited_scene_root()
-		if scene != null and scene.has_node_or_null(target_player_path):
+		if scene != null and scene.has_node(NodePath(target_player_path)):
 			player = scene.get_node(target_player_path) as AnimationPlayer
 	if player != null:
 		opts["player"] = player

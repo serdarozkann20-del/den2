@@ -12,8 +12,44 @@ const RBMatcher := preload("../core/rb_matcher.gd")
 const RBName := preload("../core/rb_name.gd")
 const RBPreset := preload("../core/rb_preset.gd")
 const RBRig := preload("../core/rb_rig.gd")
+static var _aborted := false
+
+
+## A module that failed to compile makes *every* caller report
+## `Nonexistent function '...' in base 'GDScript'`, which buries the real cause in a wall of
+## lookalike errors (and fabricates dozens of FAIL lines). Say it once, plainly, first.
+static func _preflight(out: PackedStringArray) -> void:
+	var needed := {
+		RBName: ["normalize", "tokens", "strip_prefixes", "side_of", "clean_anim_name", "similarity"],
+		RBBones: ["resolve", "detect_family", "is_helper", "finger_info"],
+		RBRig: ["from_skeleton", "from_profile", "renumber_chains"],
+		RBMatcher: ["match_rigs", "align_chains", "invert", "suggest"],
+		RBAnim: ["bone_of", "to_profile_space", "split_path", "join_path", "remove_position_tracks"],
+		RBPreset: ["sanitize", "key_for", "collect_files"],
+	}
+	for scr in needed.keys():
+		var s := scr as Script
+		if s == null:
+			_ok(out, false, "a preloaded module is null - the preload paths are broken")
+			_aborted = true
+			continue
+		for m in needed[scr]:
+			if not s.has_script_method(String(m)):
+				var msg := "%s does not expose '%s': that file did not compile" % [s.resource_path, m]
+				msg += ". Read the first 'SCRIPT ERROR: Parse Error' line in the Output panel."
+				_ok(out, false, msg)
+				_aborted = true
+
+
 static func run_all(verbose: bool = false) -> PackedStringArray:
 	var out := PackedStringArray()
+	_preflight(out)
+	if _aborted:
+		out.append("== aborted: a module failed to compile, its results would be meaningless ==")
+		if verbose:
+			for l in out:
+				print(l)
+		return out
 	_test_names(out)
 	_test_concepts(out)
 	_test_profile(out)
@@ -101,7 +137,7 @@ static func _test_concepts(out: PackedStringArray) -> void:
 
 static func _test_profile(out: PackedStringArray) -> void:
 	var profile := SkeletonProfileHumanoid.new()
-	_ok(out, profile.get_bone_size() > 20, "humanoid profile has bones")
+	_ok(out, profile.bone_size > 20, "humanoid profile has bones")
 	var rig := RBRig.from_profile(profile, "godot_humanoid")
 	var concepts: PackedStringArray = rig["concepts"]
 	var seen := {}
