@@ -25,32 +25,28 @@ static func split_path(p: NodePath) -> Dictionary:
 	return {"names": names, "subs": subs, "absolute": p.is_absolute()}
 
 
-## Build the NodePath from its parts instead of from a joined string.
-## `NodePath(String)` splits on ':', so a bone literally named `mixamorig:LeftArm`
-## would silently lose its prefix - and the engine reads a bone track's name with
-## `path.get_subname(0)` (AnimationMixer), so a split path animates nothing.
+## Build a track `NodePath` from its parts.
+##
+## Godot 4 only offers `NodePath()`, `NodePath(from: NodePath)` and `NodePath(from: String)`
+## - the `NodePath(names, subnames, absolute)` constructor of Godot 3 is gone - so the parts
+## have to be assembled into a string. That string is split again on `/` and `:`, which is
+## why a bone name must never contain a colon: `AnimationMixer` reads a bone track with
+## `path.get_subname(0)` (animation_mixer.cpp), so `@Skel:mixamorig:LeftArm` would look for a
+## bone called `mixamorig` and animate nothing. `Skeleton3D.add_bone()` rejects `:` for the
+## same reason, so stripping it here cannot lose a name that would ever have worked.
 static func join_path(names: PackedStringArray, subs: PackedStringArray, absolute: bool) -> NodePath:
-	var has_colon := false
+	var nodes := PackedStringArray()
 	for n in names:
-		if String(n).contains(":"):
-			has_colon = true
-	for n in subs:
-		if String(n).contains(":"):
-			has_colon = true
-	if not has_colon:
-		var s := "/".join(names)
-		for sub in subs:
-			s += ":" + String(sub)
-		if absolute:
-			s = "/" + s
-		return NodePath(s)
-	# Array construction keeps ':' inside a part verbatim.
-	if names.size() > 0 and subs.size() > 0:
-		var joined := String(subs[0])
-		for i in range(1, subs.size()):
-			joined += ":" + String(subs[i])
-		return NodePath(names, PackedStringArray([joined]), absolute)
-	return NodePath(names, subs, absolute)
+		nodes.append(String(n).replace(":", ""))
+	var tail := PackedStringArray()
+	for s in subs:
+		tail.append(String(s).replace(":", ""))
+	var out := "/".join(nodes)
+	if tail.size() > 0:
+		out += ":" + ":".join(tail)
+	if absolute:
+		out = "/" + out
+	return NodePath(out)
 
 
 ## The bone part of a track path (its subname), or empty for property/method tracks.

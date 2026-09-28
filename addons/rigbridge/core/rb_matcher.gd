@@ -183,16 +183,18 @@ static func match_rigs(source: Dictionary, target: Dictionary, opts: Dictionary 
 		reasons[tname] = p["reasons"]
 
 	var ambiguous: Array = []
+	# NOTE: `tname` is already declared above in this function - GDScript rejects a second
+	# declaration in the same scope, so the runner-up loop uses its own name.
 	for ti in runner_up.keys():
-		var tname := String(tgt["names"][int(ti)])
-		if not mapping.has(tname):
+		var contested := String(tgt["names"][int(ti)])
+		if not mapping.has(contested):
 			continue
-		var top := float(scores[tname])
+		var top := float(scores[contested])
 		var alt := runner_up[int(ti)]
 		var delta: float = top - float(alt["score"])
 		if delta < 0.1:
 			ambiguous.append({
-				"target": tname,
+				"target": contested,
 				"chosen": String(mapping[tname]),
 				"runner_up": String(alt["source"]),
 				"delta": delta,

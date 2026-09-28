@@ -246,13 +246,17 @@ part of your repo, so review the diff.
 
 ## Status / verification
 
-* **Engine API**: every method, constant and property the plugin touches on an engine type was checked
-  against Godot 4.7's class reference (805 classes) by `dev/rb_api_audit.py` - that catches the bug class
-  that used to make this addon hard to debug (a call the analyzer rejects, reported as
-  `Nonexistent function ... in base 'GDScript'` in every caller). Re-run it after an engine update:
-  `python3 dev/rb_api_audit.py --docs /path/to/godot/doc/classes`.
+* **Engine API**: every method, constant, property and constructor overload the plugin uses was checked
+  against Godot 4.7's class reference (810 classes) by `dev/rb_api_audit.py` - the bug class that makes an
+  addon undebuggable (one rejected line kills the file, and every caller then reports
+  `Nonexistent function ... in base 'GDScript'`). Re-run it after an engine update:
+  `python3 dev/rb_api_audit.py --fetch 4.7 --docs /tmp/godot-4.7` downloads the reference for you, or point
+  `--docs` at `doc/classes` in a godot checkout.
 * **Module wiring**: `dev/rb_preload_audit.py` verifies that each `preload()` const really exposes the members
   its callers use and that no preload path is absolute (the folder stays relocatable, no global class names).
+* **Analyzer-shaped mistakes**: `dev/rb_static_checks.py` reports a `var` declared twice in one block, a call
+  whose argument count no signature of ours accepts, a typed function with no `return`, and removed engine
+  constructor overloads. All 16 files are clean with it.
 * **Compile check** (needs a Godot binary - this is the one that finds analyzer errors `gdparse` cannot):
   `./dev/check_scripts.sh`, optionally `GODOT=/path/to/godot ./dev/check_scripts.sh`.
 * **Syntax**: all 16 scripts pass `gdparse` (gdtoolkit 4.5).
@@ -275,19 +279,24 @@ part of your repo, so review the diff.
 pointing at the *callers*. The message is misleading: one preloaded module **failed to compile**, so the
 `GDScript` object reached through a `preload` const has no methods, and every call site complains about its
 own line. Scroll up to the first `SCRIPT ERROR: Parse Error:` line - that names the real file and line; the
-`ERROR:` flood below it is fallout. The usual cause is a call that does not exist on a built-in type, because
-Godot's analyzer rejects it while parsing (e.g. `String.trim_left()` is the C# name; GDScript uses
-`lstrip()`). RigBridge now ships a static audit of every engine call, constant and property against the full
-4.7 class reference for exactly this reason. Separately: if a stale duplicate of the folder exists
-(`addons/rigbridge*`), delete it and remove `res://.godot/` so the editor rebuilds its caches.
+`ERROR:` flood below it is fallout. Three mistakes produce this, all rejected while parsing rather than by
+`gdparse`: a call that does not exist on a built-in type (`String.trim_left()` is the C# name, GDScript uses
+`lstrip()`), a `var` declared twice in the same block (`Identifier 'x' already declared in this scope`), and a
+Godot 3 constructor overload that 4.x removed (`NodePath(names, subnames, absolute)`). `dev/rb_static_checks.py`
+and `dev/rb_api_audit.py` check for all three offline; `dev/check_scripts.sh` asks the engine itself. The
+self-test also refuses to run with a broken module and says which file to look at. Separately: if a stale
+duplicate of the folder exists (`addons/rigbridge*`), delete it and remove `res://.godot/` so the editor
+rebuilds its caches.
 
 **`Bone name cannot be empty or contain ':' or '/'` + `Index p_bone = N is out of bounds`.** Godot 4.7's
 `Skeleton3D.add_bone()` rejects `:` in bone names while `set_bone_name()` allows it, so a test/build helper
 that adds `mixamorig:Hips` directly ends up with an *empty* skeleton and every later index fails. RigBridge
-now adds the bone with a temporary name and renames it afterwards. Same rule shapes Mode B: track paths are
-built with `NodePath(names, subnames)` rather than by joining strings, because a joined
-`"@GeneralSkeleton:mixamorig:LeftArm"` would be re-split on `:` and animate nothing
-(`AnimationMixer` reads the bone with `path.get_subname(0)`).
+now adds the bone with a temporary name and renames it afterwards. The same rule shapes Mode B: a track path is
+assembled as a string and any `:` inside a bone name is dropped, because `NodePath(String)` re-splits on `:` and
+`AnimationMixer` reads the bone with `path.get_subname(0)` - a path like `@GeneralSkeleton:mixamorig:LeftArm`
+would animate a bone named `mixamorig`, i.e. nothing. There is no way to express such a name as a subname in
+Godot 4 (the multi-part `NodePath` constructor is gone) and there is no need: `Skeleton3D` cannot hold a bone
+with a colon in the first place.
 
 **`Formatting error in string "Bone name cannot be empty or contain ':' or '/'.': not all arguments
 converted`.** Upstream: that engine message is passed an argument it has no placeholder for

@@ -12,6 +12,11 @@ const RBMatcher := preload("../core/rb_matcher.gd")
 const RBName := preload("../core/rb_name.gd")
 const RBPreset := preload("../core/rb_preset.gd")
 const RBRig := preload("../core/rb_rig.gd")
+const RBConcepts := preload("../core/rb_concepts.gd")
+const RBImport := preload("../core/rb_import.gd")
+const RBLibrary := preload("../core/rb_library.gd")
+const RBBoneMapBuilder := preload("../core/rb_bonemap.gd")
+const RBPipeline := preload("../core/rb_pipeline.gd")
 static var _aborted := false
 
 
@@ -26,7 +31,18 @@ static func _preflight(out: PackedStringArray) -> void:
 		RBMatcher: ["match_rigs", "align_chains", "invert", "suggest"],
 		RBAnim: ["bone_of", "to_profile_space", "split_path", "join_path", "remove_position_tracks"],
 		RBPreset: ["sanitize", "key_for", "collect_files"],
+		RBConcepts: ["all_concepts", "required_concepts", "finger_concept", "finger_chain"],
+		RBImport: ["configure", "verify", "build_node_values", "find_node_key", "calibrate_snapshot"],
+		RBLibrary: ["extract", "process_clip", "build_library", "save_library", "merge"],
+		RBBoneMapBuilder: ["humanoid_profile", "analyze", "build", "save", "map_path_for"],
+		RBPipeline: ["ensure_imported", "map_file", "save_bonemap", "run", "format_report", "attach_library"],
 	}
+	# The .import keys are data, not code, so check the tables separately.
+	for table in [[RBImport, "NODE_KEYS"], [RBImport, "EXTRA_GROUPS"], [RBConcepts, "CONCEPTS"]]:
+		var owner := table[0] as Script
+		if owner != null and not owner.get_script_constant_map().has(String(table[1])):
+			_ok(out, false, "%s is missing its %s table" % [owner.resource_path, table[1]])
+			_aborted = true
 	for scr in needed.keys():
 		var s := scr as Script
 		if s == null:
